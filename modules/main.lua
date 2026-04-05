@@ -53,7 +53,7 @@ LocalPlayer.CharacterAdded:Connect(function()
 end)
 
 task.spawn(function()
-	while task.wait(0.2) do
+	while task.wait(0.05) do
 		pcall(function()
 			Shared:PinWindowToTop()
 		end)

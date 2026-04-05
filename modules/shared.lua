@@ -54,6 +54,31 @@ function Shared:FindRayfieldMainFrame()
 	return nil
 end
 
+function Shared:FindRayfieldScreenGui()
+	for _, gui in ipairs(CoreGui:GetChildren()) do
+		if gui:IsA("ScreenGui") and gui:FindFirstChild("Main", true) then
+			return gui
+		end
+	end
+
+	return nil
+end
+
+function Shared:PinMiniPromptToTop()
+	local gui = self:FindRayfieldScreenGui()
+	if not gui then
+		return
+	end
+
+	local prompt = gui:FindFirstChild("MPrompt", true)
+	if not prompt or not prompt:IsA("GuiObject") then
+		return
+	end
+
+	prompt.AnchorPoint = Vector2.new(0.5, 0)
+	prompt.Position = UDim2.new(0.5, 0, 0, 8)
+end
+
 function Shared:PinWindowToTop()
 	local main = self:FindRayfieldMainFrame()
 	if not main then
@@ -61,14 +86,10 @@ function Shared:PinWindowToTop()
 	end
 
 	local anchor = main.AnchorPoint
-	if anchor.Y == 0 then
-		return
-	end
-
-	local position = main.AbsolutePosition
-	local size = main.AbsoluteSize
 	main.AnchorPoint = Vector2.new(anchor.X, 0)
-	main.Position = UDim2.fromOffset(position.X + (size.X * anchor.X), position.Y)
+	main.Position = UDim2.new(0.5, 0, 0, 12)
+
+	self:PinMiniPromptToTop()
 end
 
 return Shared
