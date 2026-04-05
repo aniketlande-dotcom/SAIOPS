@@ -139,12 +139,13 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 				end
 			end
 		end
+	end
 
-		for _, child in ipairs(espFolder:GetChildren()) do
-			if not active[child.Name] then
-				child:Destroy()
-			end
+	for _, child in ipairs(espFolder:GetChildren()) do
+		if not active[child.Name] then
+			child:Destroy()
 		end
+	end
 	end
 
 	VisualTab:CreateSection("ESP")
