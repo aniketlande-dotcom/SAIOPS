@@ -25,6 +25,10 @@ local function GetPrivateFile(path)
 end
 
 local function LoadPrivateModule(path)
+	if type(loadstring) ~= "function" then
+		error("SAIOPS: loadstring is not available in this executor.")
+	end
+
 	local source = GetPrivateFile(path)
 	if type(source) ~= "string" or source == "" then
 		error("SAIOPS: unable to fetch " .. path .. ". This executor needs request/http_request/syn.request support to load private GitHub modules.")
