@@ -45,6 +45,8 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 	local showHeadCircle = true
 
 	local distanceEffectsEnabled = true
+	local visibilityCheckEnabled = true
+	local visibleColorOverrideEnabled = false
 	local skeletonSmoothingEnabled = false
 	local skeletonSmoothingAlpha = 0.35
 
@@ -52,6 +54,8 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 	local skeletonColor = Color3.fromRGB(255, 255, 255)
 	local nameColor = Color3.fromRGB(255, 255, 255)
 	local headColor = Color3.fromRGB(255, 230, 120)
+	local visibleBoxColor = Color3.fromRGB(0, 255, 120)
+	local visibleSkeletonColor = Color3.fromRGB(0, 255, 120)
 
 	local drawingAvailable = type(Drawing) == "table" and type(Drawing.new) == "function"
 	local espObjects = {}
@@ -99,6 +103,32 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 
 		local viewportPoint, onScreen = camera:WorldToViewportPoint(position)
 		return Vector2.new(viewportPoint.X, viewportPoint.Y), onScreen, viewportPoint.Z
+	end
+
+	local function isVisible(targetCharacter, targetPart)
+		if not visibilityCheckEnabled then
+			return true
+		end
+
+		local localCharacter = LocalPlayer.Character
+		if not localCharacter then
+			return false
+		end
+
+		local camera = workspace.CurrentCamera
+		if not camera then
+			return false
+		end
+
+		local origin = camera.CFrame.Position
+		local direction = targetPart.Position - origin
+
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Blacklist
+		params.FilterDescendantsInstances = { localCharacter, targetCharacter }
+
+		local result = workspace:Raycast(origin, direction, params)
+		return result == nil
 	end
 
 	local function createLine(thickness)
@@ -159,10 +189,10 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		set.HealthOutline.Color = Color3.new(0, 0, 0)
 
 		set.HeadCircle.Visible = false
-		set.HeadCircle.Filled = false
+		set.HeadCircle.Filled = true
 		set.HeadCircle.NumSides = 24
 		set.HeadCircle.Thickness = 1
-		set.HeadCircle.Transparency = 1
+		set.HeadCircle.Transparency = 0.5
 
 		set.HeadCircleOutline.Visible = false
 		set.HeadCircleOutline.Filled = false
@@ -281,7 +311,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		end
 
 		local widthScale = humanoid.RigType == Enum.HumanoidRigType.R6 and 0.52 or 0.45
-		local width = math.clamp(height * widthScale, 14, 140)
+		local width = math.clamp(height * widthScale, 4, 140)
 		local minX = rootScreen.X - (width * 0.5)
 		local maxX = rootScreen.X + (width * 0.5)
 
@@ -375,12 +405,12 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		set.HeadCircle.Position = center
 		set.HeadCircle.Radius = radius
 		set.HeadCircle.Thickness = math.max(1, thickness)
-		set.HeadCircle.Transparency = alpha
+		set.HeadCircle.Transparency = math.clamp(alpha * 0.55, 0.2, 0.95)
 		set.HeadCircle.Color = headColor
 		set.HeadCircle.Visible = true
 	end
 
-	local function updateSkeleton(set, character, humanoid, alpha, thickness)
+	local function updateSkeleton(set, character, humanoid, alpha, thickness, lineColor)
 		if not showSkeleton then
 			for lineIndex, line in ipairs(set.SkeletonLines) do
 				line.Visible = false
@@ -440,7 +470,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 
 						line.From = drawFrom
 						line.To = drawTo
-						line.Color = skeletonColor
+						line.Color = lineColor
 						line.Transparency = alpha
 						line.Thickness = math.max(1, thickness)
 						line.Visible = true
@@ -491,6 +521,16 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 						local distance = myRoot and (myRoot.Position - root.Position).Magnitude or 0
 						local alpha, thickness = getDistanceStyle(distance)
 
+						local visibilityPart = character:FindFirstChild("Head") or root
+						local targetVisible = visibilityPart and isVisible(character, visibilityPart) or false
+
+						local currentBoxColor = boxColor
+						local currentSkeletonColor = skeletonColor
+						if visibleColorOverrideEnabled and targetVisible then
+							currentBoxColor = visibleBoxColor
+							currentSkeletonColor = visibleSkeletonColor
+						end
+
 						if showBox then
 							set.BoxOutline.Position = Vector2.new(bounds.MinX, bounds.MinY)
 							set.BoxOutline.Size = Vector2.new(bounds.Width, bounds.Height)
@@ -499,7 +539,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 
 							set.Box.Position = Vector2.new(bounds.MinX, bounds.MinY)
 							set.Box.Size = Vector2.new(bounds.Width, bounds.Height)
-							set.Box.Color = boxColor
+							set.Box.Color = currentBoxColor
 							set.Box.Thickness = math.max(1, thickness)
 							set.Box.Transparency = alpha
 							set.Box.Visible = true
@@ -519,7 +559,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 						end
 
 						updateHealthBar(set, bounds, humanoid, alpha)
-						updateSkeleton(set, character, humanoid, alpha, thickness)
+						updateSkeleton(set, character, humanoid, alpha, thickness, currentSkeletonColor)
 						updateHeadCircle(set, character, bounds, alpha, thickness)
 					else
 						local set = espObjects[player.UserId]
@@ -571,6 +611,16 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		Flag = "esp_team_check",
 		Callback = function(value)
 			teamCheckEnabled = value
+			updateESP()
+		end
+	})
+
+	VisualTab:CreateToggle({
+		Name = "Visibility Check",
+		CurrentValue = true,
+		Flag = "esp_visibility_check",
+		Callback = function(value)
+			visibilityCheckEnabled = value
 			updateESP()
 		end
 	})
@@ -665,6 +715,38 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		Flag = "esp_head_color",
 		Callback = function(value)
 			headColor = value
+			updateESP()
+		end
+	})
+
+	VisualTab:CreateSection("ESP Visibility Colors")
+
+	VisualTab:CreateToggle({
+		Name = "Visible Color Override",
+		CurrentValue = false,
+		Flag = "esp_visible_color_override",
+		Callback = function(value)
+			visibleColorOverrideEnabled = value
+			updateESP()
+		end
+	})
+
+	VisualTab:CreateColorPicker({
+		Name = "Visible Box Color",
+		Color = visibleBoxColor,
+		Flag = "esp_visible_box_color",
+		Callback = function(value)
+			visibleBoxColor = value
+			updateESP()
+		end
+	})
+
+	VisualTab:CreateColorPicker({
+		Name = "Visible Skeleton Color",
+		Color = visibleSkeletonColor,
+		Flag = "esp_visible_skeleton_color",
+		Callback = function(value)
+			visibleSkeletonColor = value
 			updateESP()
 		end
 	})
