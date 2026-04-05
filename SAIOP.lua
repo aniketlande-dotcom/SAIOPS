@@ -24,4 +24,18 @@ local function GetPrivateFile(path)
 	return game:HttpGet(url, true)
 end
 
-loadstring(GetPrivateFile("modules/main.lua"))()
+local function LoadPrivateModule(path)
+	local source = GetPrivateFile(path)
+	if type(source) ~= "string" or source == "" then
+		error("SAIOPS: unable to fetch " .. path .. ". This executor needs request/http_request/syn.request support to load private GitHub modules.")
+	end
+
+	local chunk, loadError = loadstring(source)
+	if not chunk then
+		error("SAIOPS: invalid module " .. path .. ": " .. tostring(loadError))
+	end
+
+	return chunk()
+end
+
+LoadPrivateModule("modules/main.lua")
