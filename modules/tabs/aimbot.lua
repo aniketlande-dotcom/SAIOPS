@@ -144,15 +144,6 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 		HoldToInteract = false,
 		Flag = "aimbot_keybind",
 		Callback = function()
-			local parsed = resolveKeyCode(keybindElement.CurrentKeybind)
-			if parsed then
-				selectedKeyCode = parsed
-			end
-
-			if activationMode == "Toggle" and aimbotEnabled then
-				toggleActive = not toggleActive
-				Shared:Notify(Rayfield, "Aimbot", toggleActive and "Toggle active" or "Toggle inactive")
-			end
 		end
 	})
 
@@ -190,7 +181,7 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 		CurrentValue = 20,
 		Flag = "aimbot_smoothness",
 		Callback = function(value)
-			smoothness = math.clamp(value / 100, 0.01, 1)
+			smoothness = math.clamp(1 - (value / 100), 0.01, 0.99)
 		end
 	})
 
@@ -263,13 +254,18 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 			selectedKeyCode = parsed
 		end
 
-		if activationMode == "Hold" and input.KeyCode == selectedKeyCode and aimbotEnabled then
-			holdActive = true
+		if input.KeyCode == selectedKeyCode and aimbotEnabled then
+			if activationMode == "Hold" then
+				holdActive = true
+			elseif activationMode == "Toggle" then
+				toggleActive = not toggleActive
+				Shared:Notify(Rayfield, "Aimbot", toggleActive and "Activated" or "Deactivated")
+			end
 		end
 	end)
 
 	UserInputService.InputEnded:Connect(function(input)
-		if activationMode == "Hold" and input.KeyCode == selectedKeyCode then
+		if input.KeyCode == selectedKeyCode and activationMode == "Hold" then
 			holdActive = false
 		end
 	end)

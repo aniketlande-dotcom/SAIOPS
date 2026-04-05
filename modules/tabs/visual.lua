@@ -1,19 +1,20 @@
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
 
 local VisualTabModule = {}
 
 function VisualTabModule:Build(Window, Rayfield, Shared)
 	local VisualTab = Window:CreateTab("Visual", "eye")
 
-	local charmsEnabled = false
+	local espEnabled = false
 	local teamCheckEnabled = true
-	local charmColor = Color3.fromRGB(255, 0, 0)
+	local espColor = Color3.fromRGB(255, 0, 0)
 
-	local charmFolder = Instance.new("Folder")
-	charmFolder.Name = "SAIOPS_Charms"
-	charmFolder.Parent = game:GetService("CoreGui")
+	local espFolder = Instance.new("Folder")
+	espFolder.Name = "SAIOPS_ESP"
+	espFolder.Parent = game:GetService("CoreGui")
 
 	local function sameTeam(player)
 		if not teamCheckEnabled then
@@ -27,8 +28,8 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		return LocalPlayer.Team == player.Team
 	end
 
-	local function clearCharms()
-		for _, child in ipairs(charmFolder:GetChildren()) do
+	local function clearESP()
+		for _, child in ipairs(espFolder:GetChildren()) do
 			child:Destroy()
 		end
 	end
@@ -42,19 +43,23 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		return character:FindFirstChild("HumanoidRootPart")
 	end
 
-	local function hasAliveHumanoid(player)
+	local function getHumanoid(player)
 		local character = player.Character
 		if not character then
-			return false
+			return nil
 		end
 
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		return character:FindFirstChildOfClass("Humanoid")
+	end
+
+	local function hasAliveHumanoid(player)
+		local humanoid = getHumanoid(player)
 		return humanoid and humanoid.Health > 0
 	end
 
-	local function updateCharms()
-		if not charmsEnabled then
-			clearCharms()
+	local function updateESP()
+		if not espEnabled then
+			clearESP()
 			return
 		end
 
@@ -63,69 +68,114 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player ~= LocalPlayer and hasAliveHumanoid(player) and not sameTeam(player) then
 				local rootPart = getRootPart(player)
-				if rootPart then
-					local name = "Charm_" .. player.UserId
-					active[name] = true
+				local humanoid = getHumanoid(player)
+				if rootPart and humanoid then
+					local espId = "ESP_" .. player.UserId
+					active[espId] = true
 
-					local charm = charmFolder:FindFirstChild(name)
-					if not charm then
-						charm = Instance.new("BoxHandleAdornment")
-						charm.Name = name
-						charm.AlwaysOnTop = true
-						charm.ZIndex = 5
-						charm.Transparency = 0.35
-						charm.Size = Vector3.new(2.5, 3.2, 1.6)
-						charm.Parent = charmFolder
-					end
+					local espGui = espFolder:FindFirstChild(espId)
+					if not espGui then
+						espGui = Instance.new("BillboardGui")
+						espGui.Name = espId
+						espGui.Size = UDim2.new(4, 0, 5, 0)
+						espGui.MaxDistance = 500
+						espGui.Parent = espFolder
 
-					charm.Color3 = charmColor
-					charm.Adornee = rootPart
+						local textLabel = Instance.new("TextLabel")
+						textLabel.Name = "NameLabel"
+						textLabel.Size = UDim2.new(1, 0, 0.3, 0)
+						textLabel.Position = UDim2.new(0, 0, 0, 0)
+						textLabel.BackgroundTransparency = 1
+						textLabel.TextScaled = true
+						textLabel.TextColor3 = espColor
+						textLabel.Parent = espGui
+
+						local healthLabel = Instance.new("TextLabel")
+						healthLabel.Name = "HealthLabel"
+						healthLabel.Size = UDim2.new(1, 0, 0.3, 0)
+						healthLabel.Position = UDim2.new(0, 0, 0.35, 0)
+						healthLabel.BackgroundTransparency = 1
+						healthLabel.TextScaled = true
+						healthLabel.TextColor3 = espColor
+						healthLabel.Parent = espGui
+
+					local distanceLabel = Instance.new("TextLabel")
+						distanceLabel.Name = "DistanceLabel"
+						distanceLabel.Size = UDim2.new(1, 0, 0.3, 0)
+						distanceLabel.Position = UDim2.new(0, 0, 0.7, 0)
+						distanceLabel.BackgroundTransparency = 1
+						distanceLabel.TextScaled = true
+						distanceLabel.TextColor3 = espColor
+						distanceLabel.Parent = espGui
+				end
+
+				espGui.Adornee = rootPart
+
+				local nameLabel = espGui:FindFirstChild("NameLabel")
+				local healthLabel = espGui:FindFirstChild("HealthLabel")
+				local distanceLabel = espGui:FindFirstChild("DistanceLabel")
+
+				if nameLabel then
+					nameLabel.Text = player.Name
+					nameLabel.TextColor3 = espColor
+				end
+
+				if healthLabel then
+					local healthPercent = math.floor((humanoid.Health / humanoid.MaxHealth) * 100)
+					healthLabel.Text = "HP: " .. healthPercent .. "%"
+					healthLabel.TextColor3 = espColor
+				end
+
+				if distanceLabel then
+					local distance = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - rootPart.Position).Magnitude)
+					distanceLabel.Text = "[" .. distance .. "m]"
+					distanceLabel.TextColor3 = espColor
 				end
 			end
 		end
 
-		for _, child in ipairs(charmFolder:GetChildren()) do
+		for _, child in ipairs(espFolder:GetChildren()) do
 			if not active[child.Name] then
 				child:Destroy()
 			end
 		end
 	end
 
-	VisualTab:CreateSection("Charms")
+	VisualTab:CreateSection("ESP")
 
 	VisualTab:CreateToggle({
-		Name = "Enable Charms",
+		Name = "Enable ESP",
 		CurrentValue = false,
-		Flag = "charms_enabled",
+		Flag = "esp_enabled",
 		Callback = function(value)
-			charmsEnabled = value
-			Shared:Notify(Rayfield, "Charms", value and "Enabled" or "Disabled")
-			updateCharms()
+			espEnabled = value
+			Shared:Notify(Rayfield, "ESP", value and "Enabled" or "Disabled")
+			updateESP()
 		end
 	})
 
 	VisualTab:CreateToggle({
 		Name = "Team Check",
 		CurrentValue = true,
-		Flag = "charms_team_check",
+		Flag = "esp_team_check",
 		Callback = function(value)
 			teamCheckEnabled = value
-			updateCharms()
+			updateESP()
 		end
 	})
 
 	VisualTab:CreateColorPicker({
-		Name = "Charm Color",
-		Color = charmColor,
-		Flag = "charms_color",
+		Name = "ESP Color",
+		Color = espColor,
+		Flag = "esp_color",
 		Callback = function(value)
-			charmColor = value
-			updateCharms()
+			espColor = value
+			updateESP()
 		end
 	})
 
 	RunService.RenderStepped:Connect(function()
-		updateCharms()
+		updateESP()
 	end)
 
 	return VisualTab
