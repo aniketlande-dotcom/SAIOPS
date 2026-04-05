@@ -11,10 +11,11 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 	local espEnabled = false
 	local teamCheckEnabled = true
 	local espColor = Color3.fromRGB(255, 0, 0)
+	local espUpdateThreadRunning = false
 
 	local espFolder = Instance.new("Folder")
 	espFolder.Name = "SAIOPS_ESP"
-	espFolder.Parent = game:GetService("CoreGui")
+	espFolder.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
 	local function sameTeam(player)
 		if not teamCheckEnabled then
@@ -64,6 +65,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		end
 
 		local active = {}
+		local myRoot = getRootPart(LocalPlayer)
 
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player ~= LocalPlayer and hasAliveHumanoid(player) and not sameTeam(player) then
@@ -78,17 +80,18 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 						espGui = Instance.new("BillboardGui")
 						espGui.Name = espId
 						espGui.Size = UDim2.new(4, 0, 5, 0)
+						espGui.AlwaysOnTop = true
 						espGui.MaxDistance = 500
 						espGui.Parent = espFolder
 
-						local textLabel = Instance.new("TextLabel")
-						textLabel.Name = "NameLabel"
-						textLabel.Size = UDim2.new(1, 0, 0.3, 0)
-						textLabel.Position = UDim2.new(0, 0, 0, 0)
-						textLabel.BackgroundTransparency = 1
-						textLabel.TextScaled = true
-						textLabel.TextColor3 = espColor
-						textLabel.Parent = espGui
+						local nameLabel = Instance.new("TextLabel")
+						nameLabel.Name = "NameLabel"
+						nameLabel.Size = UDim2.new(1, 0, 0.3, 0)
+						nameLabel.Position = UDim2.new(0, 0, 0, 0)
+						nameLabel.BackgroundTransparency = 1
+						nameLabel.TextScaled = true
+						nameLabel.Font = Enum.Font.GothamBold
+						nameLabel.Parent = espGui
 
 						local healthLabel = Instance.new("TextLabel")
 						healthLabel.Name = "HealthLabel"
@@ -96,18 +99,18 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 						healthLabel.Position = UDim2.new(0, 0, 0.35, 0)
 						healthLabel.BackgroundTransparency = 1
 						healthLabel.TextScaled = true
-						healthLabel.TextColor3 = espColor
+						healthLabel.Font = Enum.Font.Gotham
 						healthLabel.Parent = espGui
 
-					local distanceLabel = Instance.new("TextLabel")
-					distanceLabel.Name = "DistanceLabel"
-					distanceLabel.Size = UDim2.new(1, 0, 0.3, 0)
-					distanceLabel.Position = UDim2.new(0, 0, 0.7, 0)
-					distanceLabel.BackgroundTransparency = 1
-					distanceLabel.TextScaled = true
-					distanceLabel.TextColor3 = espColor
-					distanceLabel.Parent = espGui
-				end
+						local distanceLabel = Instance.new("TextLabel")
+						distanceLabel.Name = "DistanceLabel"
+						distanceLabel.Size = UDim2.new(1, 0, 0.3, 0)
+						distanceLabel.Position = UDim2.new(0, 0, 0.7, 0)
+						distanceLabel.BackgroundTransparency = 1
+						distanceLabel.TextScaled = true
+						distanceLabel.Font = Enum.Font.Gotham
+						distanceLabel.Parent = espGui
+					end
 
 				espGui.Adornee = rootPart
 
@@ -121,15 +124,18 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 				end
 
 				if healthLabel then
-					local healthPercent = math.floor((humanoid.Health / humanoid.MaxHealth) * 100)
+					local maxHealth = math.max(humanoid.MaxHealth, 1)
+					local healthPercent = math.floor((humanoid.Health / maxHealth) * 100)
 					healthLabel.Text = "HP: " .. healthPercent .. "%"
 					healthLabel.TextColor3 = espColor
 				end
 
-				if distanceLabel then
-					local distance = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - rootPart.Position).Magnitude)
+				if distanceLabel and myRoot then
+					local distance = math.floor((myRoot.Position - rootPart.Position).Magnitude)
 					distanceLabel.Text = "[" .. distance .. "m]"
 					distanceLabel.TextColor3 = espColor
+				elseif distanceLabel then
+					distanceLabel.Text = "[--m]"
 				end
 			end
 		end
@@ -174,9 +180,14 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		end
 	})
 
-	RunService.RenderStepped:Connect(function()
-		updateESP()
-	end)
+	if not espUpdateThreadRunning then
+		espUpdateThreadRunning = true
+		task.spawn(function()
+			while task.wait(0.15) do
+				updateESP()
+			end
+		end)
+	end
 
 	return VisualTab
 end
