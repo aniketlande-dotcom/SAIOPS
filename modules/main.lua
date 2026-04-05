@@ -1,5 +1,5 @@
 local REPO_PATH = "aniketlande-dotcom/SAIOPS/main/"
-local REPO_REF = "8fa3bc5"
+local REPO_REF = "8778df8"
 
 local function GetPublicFile(path)
 	return game:HttpGet("https://raw.githubusercontent.com/aniketlande-dotcom/SAIOPS/" .. REPO_REF .. "/" .. path, true)
