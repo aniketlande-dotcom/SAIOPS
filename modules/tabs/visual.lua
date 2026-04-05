@@ -49,6 +49,12 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 	local visibleColorOverrideEnabled = false
 	local skeletonSmoothingEnabled = false
 	local skeletonSmoothingAlpha = 0.35
+	local maxRenderDistance = 1200
+	local visibilityUpdateInterval = 0.12
+	local updateInterval = 1 / 90
+	local showDistanceInName = true
+	local nameTextSize = 13
+	local lastUpdateTime = 0
 
 	local boxColor = Color3.fromRGB(255, 0, 0)
 	local skeletonColor = Color3.fromRGB(255, 255, 255)
@@ -59,6 +65,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 
 	local drawingAvailable = type(Drawing) == "table" and type(Drawing.new) == "function"
 	local espObjects = {}
+	local visibilityCache = {}
 
 	local function sameTeam(player)
 		if not teamCheckEnabled then
@@ -165,7 +172,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		set.BoxOutline.Color = Color3.new(0, 0, 0)
 
 		set.Name.Visible = false
-		set.Name.Size = 13
+		set.Name.Size = nameTextSize
 		set.Name.Center = true
 		set.Name.Outline = true
 		set.Name.Font = 2
@@ -251,7 +258,27 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		for userId, set in pairs(espObjects) do
 			removeObjectSet(set)
 			espObjects[userId] = nil
+			visibilityCache[userId] = nil
 		end
+	end
+
+	local function getVisibilityCached(userId, targetCharacter, targetPart, now)
+		if not visibilityCheckEnabled then
+			return true
+		end
+
+		local cached = visibilityCache[userId]
+		if cached and (now - cached.Time) <= visibilityUpdateInterval then
+			return cached.Value
+		end
+
+		local value = isVisible(targetCharacter, targetPart)
+		visibilityCache[userId] = {
+			Value = value,
+			Time = now
+		}
+
+		return value
 	end
 
 	local function getRigConnections(humanoid)
@@ -491,6 +518,12 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return
 		end
 
+		local now = os.clock()
+		if (now - lastUpdateTime) < updateInterval then
+			return
+		end
+		lastUpdateTime = now
+
 		if not espEnabled then
 			for _, set in pairs(espObjects) do
 				hideObjectSet(set)
@@ -508,63 +541,77 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 				local root = getRootPart(player)
 
 				if character and humanoid and root and humanoid.Health > 0 then
-					local bounds = getBoxBounds(character, humanoid)
-					if bounds then
-						active[player.UserId] = true
-
-						local set = espObjects[player.UserId]
-						if not set then
-							set = createObjectSet()
-							espObjects[player.UserId] = set
-						end
-
-						local distance = myRoot and (myRoot.Position - root.Position).Magnitude or 0
-						local alpha, thickness = getDistanceStyle(distance)
-
-						local visibilityPart = character:FindFirstChild("Head") or root
-						local targetVisible = visibilityPart and isVisible(character, visibilityPart) or false
-
-						local currentBoxColor = boxColor
-						local currentSkeletonColor = skeletonColor
-						if visibleColorOverrideEnabled and targetVisible then
-							currentBoxColor = visibleBoxColor
-							currentSkeletonColor = visibleSkeletonColor
-						end
-
-						if showBox then
-							set.BoxOutline.Position = Vector2.new(bounds.MinX, bounds.MinY)
-							set.BoxOutline.Size = Vector2.new(bounds.Width, bounds.Height)
-							set.BoxOutline.Transparency = alpha
-							set.BoxOutline.Visible = true
-
-							set.Box.Position = Vector2.new(bounds.MinX, bounds.MinY)
-							set.Box.Size = Vector2.new(bounds.Width, bounds.Height)
-							set.Box.Color = currentBoxColor
-							set.Box.Thickness = math.max(1, thickness)
-							set.Box.Transparency = alpha
-							set.Box.Visible = true
-						else
-							set.Box.Visible = false
-							set.BoxOutline.Visible = false
-						end
-
-						if showName then
-							set.Name.Text = player.Name
-							set.Name.Position = Vector2.new(bounds.CenterX, bounds.MinY - 16)
-							set.Name.Color = nameColor
-							set.Name.Transparency = alpha
-							set.Name.Visible = true
-						else
-							set.Name.Visible = false
-						end
-
-						updateHealthBar(set, bounds, humanoid, alpha)
-						updateSkeleton(set, character, humanoid, alpha, thickness, currentSkeletonColor)
-						updateHeadCircle(set, character, bounds, alpha, thickness)
-					else
+					local distance = myRoot and (myRoot.Position - root.Position).Magnitude or 0
+					if distance > maxRenderDistance then
 						local set = espObjects[player.UserId]
 						if set then
 							hideObjectSet(set)
+						end
+						visibilityCache[player.UserId] = nil
+					else
+						local bounds = getBoxBounds(character, humanoid)
+						if bounds then
+							active[player.UserId] = true
+
+							local set = espObjects[player.UserId]
+							if not set then
+								set = createObjectSet()
+								espObjects[player.UserId] = set
+							end
+
+							local alpha, thickness = getDistanceStyle(distance)
+
+							local visibilityPart = character:FindFirstChild("Head") or root
+							local targetVisible = visibilityPart and getVisibilityCached(player.UserId, character, visibilityPart, now) or false
+
+							local currentBoxColor = boxColor
+							local currentSkeletonColor = skeletonColor
+							if visibleColorOverrideEnabled and targetVisible then
+								currentBoxColor = visibleBoxColor
+								currentSkeletonColor = visibleSkeletonColor
+							end
+
+							if showBox then
+								set.BoxOutline.Position = Vector2.new(bounds.MinX, bounds.MinY)
+								set.BoxOutline.Size = Vector2.new(bounds.Width, bounds.Height)
+								set.BoxOutline.Transparency = alpha
+								set.BoxOutline.Visible = true
+
+								set.Box.Position = Vector2.new(bounds.MinX, bounds.MinY)
+								set.Box.Size = Vector2.new(bounds.Width, bounds.Height)
+								set.Box.Color = currentBoxColor
+								set.Box.Thickness = math.max(1, thickness)
+								set.Box.Transparency = alpha
+								set.Box.Visible = true
+							else
+								set.Box.Visible = false
+								set.BoxOutline.Visible = false
+							end
+
+							if showName then
+								if showDistanceInName then
+									set.Name.Text = string.format("%s [%.0fm]", player.Name, distance)
+								else
+									set.Name.Text = player.Name
+								end
+								set.Name.Position = Vector2.new(bounds.CenterX, bounds.MinY - 16)
+								set.Name.Size = nameTextSize
+								set.Name.Color = nameColor
+								set.Name.Transparency = alpha
+								set.Name.Visible = true
+							else
+								set.Name.Visible = false
+							end
+
+							updateHealthBar(set, bounds, humanoid, alpha)
+							updateSkeleton(set, character, humanoid, alpha, thickness, currentSkeletonColor)
+							updateHeadCircle(set, character, bounds, alpha, thickness)
+						else
+							local set = espObjects[player.UserId]
+							if set then
+								hideObjectSet(set)
+							end
+							visibilityCache[player.UserId] = nil
 						end
 					end
 				else
@@ -572,12 +619,14 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 					if set then
 						hideObjectSet(set)
 					end
+					visibilityCache[player.UserId] = nil
 				end
 			else
 				local set = espObjects[player.UserId]
 				if set then
 					hideObjectSet(set)
 				end
+				visibilityCache[player.UserId] = nil
 			end
 		end
 
@@ -621,6 +670,34 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		Flag = "esp_visibility_check",
 		Callback = function(value)
 			visibilityCheckEnabled = value
+			if not value then
+				visibilityCache = {}
+			end
+			updateESP()
+		end
+	})
+
+	VisualTab:CreateSection("ESP Clarity")
+
+	VisualTab:CreateToggle({
+		Name = "Show Distance In Name",
+		CurrentValue = true,
+		Flag = "esp_show_distance_name",
+		Callback = function(value)
+			showDistanceInName = value
+			updateESP()
+		end
+	})
+
+	VisualTab:CreateSlider({
+		Name = "Name Text Size",
+		Range = { 10, 20 },
+		Increment = 1,
+		Suffix = "px",
+		CurrentValue = 13,
+		Flag = "esp_name_text_size",
+		Callback = function(value)
+			nameTextSize = value
 			updateESP()
 		end
 	})
@@ -790,6 +867,46 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		end
 	})
 
+	VisualTab:CreateSection("ESP Performance")
+
+	VisualTab:CreateSlider({
+		Name = "Max Render Distance",
+		Range = { 100, 3000 },
+		Increment = 25,
+		Suffix = "m",
+		CurrentValue = 1200,
+		Flag = "esp_max_render_distance",
+		Callback = function(value)
+			maxRenderDistance = value
+			updateESP()
+		end
+	})
+
+	VisualTab:CreateSlider({
+		Name = "ESP Update Rate",
+		Range = { 30, 144 },
+		Increment = 1,
+		Suffix = "fps",
+		CurrentValue = 90,
+		Flag = "esp_update_rate",
+		Callback = function(value)
+			updateInterval = 1 / math.max(1, value)
+		end
+	})
+
+	VisualTab:CreateSlider({
+		Name = "Visibility Refresh",
+		Range = { 20, 500 },
+		Increment = 10,
+		Suffix = "ms",
+		CurrentValue = 120,
+		Flag = "esp_visibility_refresh",
+		Callback = function(value)
+			visibilityUpdateInterval = math.max(0.02, value / 1000)
+			visibilityCache = {}
+		end
+	})
+
 	if not espUpdateThreadRunning then
 		espUpdateThreadRunning = true
 		RunService.RenderStepped:Connect(updateESP)
@@ -801,6 +918,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			removeObjectSet(set)
 			espObjects[player.UserId] = nil
 		end
+		visibilityCache[player.UserId] = nil
 	end)
 
 	LocalPlayer.CharacterRemoving:Connect(function()
