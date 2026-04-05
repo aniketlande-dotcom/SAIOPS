@@ -14,8 +14,7 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 	local selectedKeyCode = Enum.KeyCode.RightAlt
 	local toggleActive = false
 	local holdActive = false
-	local smoothnessPercent = 70
-	local smoothness = 0.04
+	local smoothness = 0.2
 	local targetPartOption = "Head"
 	local fovRadius = 120
 	local showFov = false
@@ -47,14 +46,6 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 
 		return nil
 	end
-
-	local function updateSmoothnessAlpha()
-		local t = math.clamp(smoothnessPercent / 100, 0, 1)
-		-- Keep aim movement smooth across the full slider range instead of snapping at lower values.
-		smoothness = 0.02 + ((1 - t) ^ 1.35) * 0.12
-	end
-
-	updateSmoothnessAlpha()
 
 	local function isTeammate(player)
 		if not teamCheckEnabled then
@@ -187,11 +178,10 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 		Range = {1, 100},
 		Increment = 1,
 		Suffix = "%",
-		CurrentValue = smoothnessPercent,
+		CurrentValue = 20,
 		Flag = "aimbot_smoothness",
 		Callback = function(value)
-			smoothnessPercent = value
-			updateSmoothnessAlpha()
+			smoothness = math.clamp(1 - (value / 100), 0.01, 0.99)
 		end
 	})
 
