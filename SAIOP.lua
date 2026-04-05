@@ -1,7 +1,7 @@
 getgenv().RAYFIELD_ASSET_ID = 132249892549826
 
 local REPO_PATH = "aniketlande-dotcom/SAIOPS/main/"
-local REPO_REF = "93d5c3d"
+local REPO_REF = "8de8cf6"
 
 local function GetPublicFile(path)
 	return game:HttpGet("https://raw.githubusercontent.com/aniketlande-dotcom/SAIOPS/" .. REPO_REF .. "/" .. path, true)
