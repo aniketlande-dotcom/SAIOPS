@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
+local CUSTOM_PLACE_ID = 292439477
 
 local VisualTabModule = {}
 
@@ -33,6 +34,7 @@ local MAX_SKELETON_LINES = math.max(#R6_CONNECTIONS, #R15_CONNECTIONS)
 
 function VisualTabModule:Build(Window, Rayfield, Shared)
 	local VisualTab = Window:CreateTab("Visual", "eye")
+	local isCustomMode = game.PlaceId == CUSTOM_PLACE_ID
 
 	local espEnabled = false
 	local teamCheckEnabled = true
@@ -100,6 +102,47 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		end
 
 		return nil
+	end
+
+	local function getFirstMeshPartRecursive(root)
+		if not root then
+			return nil
+		end
+
+		for _, child in ipairs(root:GetChildren()) do
+			if child:IsA("MeshPart") then
+				return child
+			end
+
+			local found = getFirstMeshPartRecursive(child)
+			if found then
+				return found
+			end
+		end
+
+		return nil
+	end
+
+	local function getCustomEnemyModels()
+		local playersFolder = workspace:FindFirstChild("Players")
+		if not playersFolder then
+			return {}
+		end
+
+		local topChildren = playersFolder:GetChildren()
+		local enemyFolder = topChildren[1]
+		if not enemyFolder then
+			return {}
+		end
+
+		local enemies = {}
+		for _, model in ipairs(enemyFolder:GetChildren()) do
+			if model:IsA("Model") or model:IsA("Folder") then
+				table.insert(enemies, model)
+			end
+		end
+
+		return enemies
 	end
 
 	local function worldToScreen(position)
@@ -353,6 +396,45 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		}
 	end
 
+	local function getBoxBoundsFromPart(targetPart)
+		if not targetPart or not targetPart:IsA("BasePart") then
+			return nil
+		end
+
+		local centerScreen, centerOnScreen, centerDepth = worldToScreen(targetPart.Position)
+		if not centerScreen or not centerOnScreen or centerDepth <= 0 then
+			return nil
+		end
+
+		local camera = workspace.CurrentCamera
+		if not camera then
+			return nil
+		end
+
+		local rightPoint = targetPart.Position + (camera.CFrame.RightVector * (targetPart.Size.X * 0.6))
+		local upPoint = targetPart.Position + Vector3.new(0, targetPart.Size.Y * 1.2, 0)
+
+		local rightScreen, rightOnScreen, rightDepth = worldToScreen(rightPoint)
+		local upScreen, upOnScreen, upDepth = worldToScreen(upPoint)
+
+		if not rightScreen or not upScreen or not rightOnScreen or not upOnScreen or rightDepth <= 0 or upDepth <= 0 then
+			return nil
+		end
+
+		local halfWidth = math.max(8, math.abs(rightScreen.X - centerScreen.X))
+		local halfHeight = math.max(14, math.abs(centerScreen.Y - upScreen.Y))
+
+		return {
+			MinX = centerScreen.X - halfWidth,
+			MinY = centerScreen.Y - halfHeight,
+			MaxX = centerScreen.X + halfWidth,
+			MaxY = centerScreen.Y + halfHeight,
+			Width = halfWidth * 2,
+			Height = halfHeight * 2,
+			CenterX = centerScreen.X
+		}
+	end
+
 	local function getHealthColor(ratio)
 		local red = math.floor(255 * (1 - ratio))
 		local green = math.floor(255 * ratio)
@@ -531,6 +613,93 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return
 		end
 
+		if isCustomMode then
+			local active = {}
+			local myRoot = getRootPart(LocalPlayer)
+
+			for _, enemyModel in ipairs(getCustomEnemyModels()) do
+				local trackingPart = getFirstMeshPartRecursive(enemyModel)
+				if trackingPart then
+					local distance = myRoot and (myRoot.Position - trackingPart.Position).Magnitude or 0
+					if distance <= maxRenderDistance then
+						local bounds = getBoxBoundsFromPart(trackingPart)
+						if bounds then
+							active[enemyModel] = true
+
+							local set = espObjects[enemyModel]
+							if not set then
+								set = createObjectSet()
+								espObjects[enemyModel] = set
+							end
+
+							local alpha, thickness = getDistanceStyle(distance)
+							local targetVisible = getVisibilityCached(enemyModel, enemyModel, trackingPart, now)
+							local currentBoxColor = boxColor
+							if visibleColorOverrideEnabled and targetVisible then
+								currentBoxColor = visibleBoxColor
+							end
+
+							if showBox then
+								set.BoxOutline.Position = Vector2.new(bounds.MinX, bounds.MinY)
+								set.BoxOutline.Size = Vector2.new(bounds.Width, bounds.Height)
+								set.BoxOutline.Transparency = alpha
+								set.BoxOutline.Visible = true
+
+								set.Box.Position = Vector2.new(bounds.MinX, bounds.MinY)
+								set.Box.Size = Vector2.new(bounds.Width, bounds.Height)
+								set.Box.Color = currentBoxColor
+								set.Box.Thickness = math.max(1, thickness)
+								set.Box.Transparency = alpha
+								set.Box.Visible = true
+							else
+								set.Box.Visible = false
+								set.BoxOutline.Visible = false
+							end
+
+							if showName then
+								if showDistanceInName then
+									set.Name.Text = string.format("%s [%.0fm]", enemyModel.Name, distance)
+								else
+									set.Name.Text = enemyModel.Name
+								end
+								set.Name.Position = Vector2.new(bounds.CenterX, bounds.MinY - 16)
+								set.Name.Size = nameTextSize
+								set.Name.Color = nameColor
+								set.Name.Transparency = alpha
+								set.Name.Visible = true
+							else
+								set.Name.Visible = false
+							end
+
+							set.HealthBackground.Visible = false
+							set.HealthFill.Visible = false
+							set.HealthOutline.Visible = false
+							set.HeadCircle.Visible = false
+							set.HeadCircleOutline.Visible = false
+							for _, line in ipairs(set.SkeletonLines) do
+								line.Visible = false
+							end
+						else
+							local set = espObjects[enemyModel]
+							if set then
+								hideObjectSet(set)
+							end
+							visibilityCache[enemyModel] = nil
+						end
+					end
+				end
+			end
+
+			for key, set in pairs(espObjects) do
+				if not active[key] then
+					hideObjectSet(set)
+					visibilityCache[key] = nil
+				end
+			end
+
+			return
+		end
+
 		local active = {}
 		local myRoot = getRootPart(LocalPlayer)
 
@@ -639,6 +808,10 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 
 	if not drawingAvailable then
 		Shared:Notify(Rayfield, "ESP", "Drawing API not available in this executor")
+	end
+
+	if isCustomMode then
+		Shared:Notify(Rayfield, "ESP", "Custom ESP mode detected for this game")
 	end
 
 	VisualTab:CreateSection("ESP")
