@@ -14,6 +14,7 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 	local selectedKeyCode = Enum.KeyCode.RightAlt
 	local toggleActive = false
 	local holdActive = false
+	local vectorDirectionEnabled = false
 	local smoothness = 0.2
 	local targetPartOption = "Head"
 	local fovRadius = 120
@@ -95,10 +96,10 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 		return result.Instance and result.Instance:IsDescendantOf(targetCharacter)
 	end
 
-	local function getBestTarget()
+	local function getBestTargetPosition()
 		local mouseLocation = UserInputService:GetMouseLocation()
 		local nearestDistance = math.huge
-		local bestPart = nil
+		local bestPosition = nil
 
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player ~= LocalPlayer and not isTeammate(player) and player.Character then
@@ -106,12 +107,13 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 				if humanoid and humanoid.Health > 0 then
 					local targetPart = getTargetPartFromCharacter(player.Character)
 					if targetPart then
-						local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+						local targetPosition = targetPart.Position
+						local screenPos, onScreen = Camera:WorldToViewportPoint(targetPosition)
 						if onScreen and isVisible(player.Character, targetPart) then
 							local distance = (Vector2.new(screenPos.X, screenPos.Y) - mouseLocation).Magnitude
 							if distance <= fovRadius and distance < nearestDistance then
 								nearestDistance = distance
-								bestPart = targetPart
+								bestPosition = targetPosition
 							end
 						end
 					end
@@ -119,7 +121,7 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 			end
 		end
 
-		return bestPart
+		return bestPosition
 	end
 
 	AimbotTab:CreateSection("Core")
@@ -170,6 +172,15 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 		Flag = "aimbot_target_part",
 		Callback = function(options)
 			targetPartOption = options[1] or "Head"
+		end
+	})
+
+	AimbotTab:CreateToggle({
+		Name = "Use Vector Direction",
+		CurrentValue = false,
+		Flag = "aimbot_vector_direction",
+		Callback = function(value)
+			vectorDirectionEnabled = value
 		end
 	})
 
@@ -283,13 +294,25 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 			return
 		end
 
-		local targetPart = getBestTarget()
-		if not targetPart then
+		local targetPosition = getBestTargetPosition()
+		if not targetPosition then
 			return
 		end
 
 		local origin = Camera.CFrame.Position
-		local targetCFrame = CFrame.new(origin, targetPart.Position)
+		local targetCFrame
+		if vectorDirectionEnabled then
+			local toTarget = targetPosition - origin
+			if toTarget.Magnitude < 1e-6 then
+				return
+			end
+
+			local directionUnit = toTarget.Unit
+			targetCFrame = CFrame.new(origin, origin + directionUnit)
+		else
+			targetCFrame = CFrame.new(origin, targetPosition)
+		end
+
 		Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, smoothness)
 	end)
 
