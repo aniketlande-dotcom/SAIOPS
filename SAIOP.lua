@@ -1,28 +1,19 @@
 getgenv().RAYFIELD_ASSET_ID = 132249892549826
 
-local REPO_PATH = "aniketlande-dotcom/SAIOPS/main/"
-local REPO_REF = "4d09d8b"
+local MAIN_LOADER_URL = "https://raw.githubusercontent.com/aniketlande-dotcom/SAIOPS/main/modules/main.lua"
 
-local function GetPublicFile(path)
-	return game:HttpGet("https://raw.githubusercontent.com/aniketlande-dotcom/SAIOPS/" .. REPO_REF .. "/" .. path, true)
+if type(loadstring) ~= "function" then
+	error("SAIOPS: loadstring is not available in this executor.")
 end
 
-local function LoadModule(path)
-	if type(loadstring) ~= "function" then
-		error("SAIOPS: loadstring is not available in this executor.")
-	end
-
-	local source = GetPublicFile(path)
-	if type(source) ~= "string" or source == "" then
-		error("SAIOPS: unable to fetch " .. path .. " from the public repository.")
-	end
-
-	local chunk, loadError = loadstring(source)
-	if not chunk then
-		error("SAIOPS: invalid module " .. path .. ": " .. tostring(loadError))
-	end
-
-	return chunk()
+local source = game:HttpGet(MAIN_LOADER_URL, true)
+if type(source) ~= "string" or source == "" then
+	error("SAIOPS: unable to fetch modules/main.lua from branch main.")
 end
 
-LoadModule("modules/main.lua")
+local chunk, loadError = loadstring(source)
+if not chunk then
+	error("SAIOPS: invalid modules/main.lua: " .. tostring(loadError))
+end
+
+chunk()
