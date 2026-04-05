@@ -100,13 +100,13 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 						healthLabel.Parent = espGui
 
 					local distanceLabel = Instance.new("TextLabel")
-						distanceLabel.Name = "DistanceLabel"
-						distanceLabel.Size = UDim2.new(1, 0, 0.3, 0)
-						distanceLabel.Position = UDim2.new(0, 0, 0.7, 0)
-						distanceLabel.BackgroundTransparency = 1
-						distanceLabel.TextScaled = true
-						distanceLabel.TextColor3 = espColor
-						distanceLabel.Parent = espGui
+					distanceLabel.Name = "DistanceLabel"
+					distanceLabel.Size = UDim2.new(1, 0, 0.3, 0)
+					distanceLabel.Position = UDim2.new(0, 0, 0.7, 0)
+					distanceLabel.BackgroundTransparency = 1
+					distanceLabel.TextScaled = true
+					distanceLabel.TextColor3 = espColor
+					distanceLabel.Parent = espGui
 				end
 
 				espGui.Adornee = rootPart
