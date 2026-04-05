@@ -74,11 +74,15 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return false
 		end
 
-		if not LocalPlayer.Team or not player.Team then
-			return false
+		if LocalPlayer.Team and player.Team then
+			return LocalPlayer.Team == player.Team
 		end
 
-		return LocalPlayer.Team == player.Team
+		if LocalPlayer.TeamColor and player.TeamColor then
+			return tostring(LocalPlayer.TeamColor) == tostring(player.TeamColor)
+		end
+
+		return false
 	end
 
 	local function getHumanoid(player)
@@ -123,26 +127,55 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		return nil
 	end
 
-	local function getCustomEnemyModels()
+	local function getModelPlayerFromTag(model)
+		local tagGui = model:FindFirstChild("NameTagGui", true)
+		if not tagGui then
+			return nil
+		end
+
+		local playerTag = tagGui:FindFirstChild("PlayerTag")
+		if not playerTag or not playerTag:IsA("TextLabel") then
+			return nil
+		end
+
+		local name = playerTag.Text
+		if type(name) ~= "string" or name == "" then
+			return nil
+		end
+
+		return Players:FindFirstChild(name)
+	end
+
+	local function shouldRenderCustomModel(model)
+		if not teamCheckEnabled then
+			return true
+		end
+
+		local modelPlayer = getModelPlayerFromTag(model)
+		if not modelPlayer then
+			return false
+		end
+
+		return not sameTeam(modelPlayer)
+	end
+
+	local function getCustomCharacterModels()
 		local playersFolder = workspace:FindFirstChild("Players")
 		if not playersFolder then
 			return {}
 		end
 
 		local topChildren = playersFolder:GetChildren()
-		local enemyFolder = topChildren[1]
-		if not enemyFolder then
-			return {}
-		end
-
-		local enemies = {}
-		for _, model in ipairs(enemyFolder:GetChildren()) do
-			if model:IsA("Model") or model:IsA("Folder") then
-				table.insert(enemies, model)
+		local models = {}
+		for _, sideFolder in ipairs(topChildren) do
+			for _, model in ipairs(sideFolder:GetChildren()) do
+				if model:IsA("Model") or model:IsA("Folder") then
+					table.insert(models, model)
+				end
 			end
 		end
 
-		return enemies
+		return models
 	end
 
 	local function worldToScreen(position)
@@ -401,37 +434,52 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return nil
 		end
 
-		local centerScreen, centerOnScreen, centerDepth = worldToScreen(targetPart.Position)
-		if not centerScreen or not centerOnScreen or centerDepth <= 0 then
+		local size = targetPart.Size * 0.5
+		local cf = targetPart.CFrame
+		local corners = {
+			cf * Vector3.new(-size.X, -size.Y, -size.Z),
+			cf * Vector3.new(-size.X, -size.Y, size.Z),
+			cf * Vector3.new(-size.X, size.Y, -size.Z),
+			cf * Vector3.new(-size.X, size.Y, size.Z),
+			cf * Vector3.new(size.X, -size.Y, -size.Z),
+			cf * Vector3.new(size.X, -size.Y, size.Z),
+			cf * Vector3.new(size.X, size.Y, -size.Z),
+			cf * Vector3.new(size.X, size.Y, size.Z)
+		}
+
+		local minX, minY = math.huge, math.huge
+		local maxX, maxY = -math.huge, -math.huge
+		local onScreenCount = 0
+
+		for _, cornerWorld in ipairs(corners) do
+			local point, onScreen, depth = worldToScreen(cornerWorld)
+			if point and depth > 0 then
+				if onScreen then
+					onScreenCount = onScreenCount + 1
+				end
+				minX = math.min(minX, point.X)
+				minY = math.min(minY, point.Y)
+				maxX = math.max(maxX, point.X)
+				maxY = math.max(maxY, point.Y)
+			end
+		end
+
+		if onScreenCount == 0 or minX == math.huge or minY == math.huge then
 			return nil
 		end
 
-		local camera = workspace.CurrentCamera
-		if not camera then
-			return nil
-		end
-
-		local rightPoint = targetPart.Position + (camera.CFrame.RightVector * (targetPart.Size.X * 0.6))
-		local upPoint = targetPart.Position + Vector3.new(0, targetPart.Size.Y * 1.2, 0)
-
-		local rightScreen, rightOnScreen, rightDepth = worldToScreen(rightPoint)
-		local upScreen, upOnScreen, upDepth = worldToScreen(upPoint)
-
-		if not rightScreen or not upScreen or not rightOnScreen or not upOnScreen or rightDepth <= 0 or upDepth <= 0 then
-			return nil
-		end
-
-		local halfWidth = math.max(8, math.abs(rightScreen.X - centerScreen.X))
-		local halfHeight = math.max(14, math.abs(centerScreen.Y - upScreen.Y))
+		local width = math.max(6, maxX - minX)
+		local height = math.max(10, maxY - minY)
+		local centerX = minX + (width * 0.5)
 
 		return {
-			MinX = centerScreen.X - halfWidth,
-			MinY = centerScreen.Y - halfHeight,
-			MaxX = centerScreen.X + halfWidth,
-			MaxY = centerScreen.Y + halfHeight,
-			Width = halfWidth * 2,
-			Height = halfHeight * 2,
-			CenterX = centerScreen.X
+			MinX = minX,
+			MinY = minY,
+			MaxX = maxX,
+			MaxY = maxY,
+			Width = width,
+			Height = height,
+			CenterX = centerX
 		}
 	end
 
@@ -617,7 +665,16 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			local active = {}
 			local myRoot = getRootPart(LocalPlayer)
 
-			for _, enemyModel in ipairs(getCustomEnemyModels()) do
+			for _, enemyModel in ipairs(getCustomCharacterModels()) do
+				if not shouldRenderCustomModel(enemyModel) then
+					local set = espObjects[enemyModel]
+					if set then
+						hideObjectSet(set)
+					end
+					visibilityCache[enemyModel] = nil
+					continue
+				end
+
 				local trackingPart = getFirstMeshPartRecursive(enemyModel)
 				if trackingPart then
 					local distance = myRoot and (myRoot.Position - trackingPart.Position).Magnitude or 0
