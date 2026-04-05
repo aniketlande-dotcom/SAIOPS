@@ -1,6 +1,6 @@
 getgenv().RAYFIELD_ASSET_ID = 132249892549826
 
-local GITHUB_TOKEN = "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"
+local GITHUB_TOKEN = "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"
 local REPO_PATH = "aniketlande-dotcom/SAIOPS/main/"
 
 local function GetPrivateFile(path)
