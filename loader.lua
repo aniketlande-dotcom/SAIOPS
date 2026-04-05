@@ -1,0 +1,1 @@
+loadstring(game:HttpGet("https://raw.githubusercontent.com/aniketlande-dotcom/SAIOPS/main/SAIOP.lua", true))()
