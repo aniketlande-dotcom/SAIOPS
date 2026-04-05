@@ -1,8 +1,8 @@
 local REPO_PATH = "aniketlande-dotcom/SAIOPS/main/"
-local REPO_VERSION = "068e3e4"
+local REPO_REF = "99da571"
 
 local function GetPublicFile(path)
-	return game:HttpGet("https://raw.githubusercontent.com/" .. REPO_PATH .. path .. "?v=" .. REPO_VERSION, true)
+	return game:HttpGet("https://raw.githubusercontent.com/aniketlande-dotcom/SAIOPS/" .. REPO_REF .. "/" .. path, true)
 end
 
 local function LoadModule(path)
