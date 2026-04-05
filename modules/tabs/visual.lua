@@ -1,8 +1,35 @@
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
 
 local VisualTabModule = {}
+
+local R6_CONNECTIONS = {
+	{ "Head", "Torso" },
+	{ "Torso", "Left Arm" },
+	{ "Torso", "Right Arm" },
+	{ "Torso", "Left Leg" },
+	{ "Torso", "Right Leg" }
+}
+
+local R15_CONNECTIONS = {
+	{ "Head", "UpperTorso" },
+	{ "UpperTorso", "LowerTorso" },
+	{ "UpperTorso", "LeftUpperArm" },
+	{ "LeftUpperArm", "LeftLowerArm" },
+	{ "LeftLowerArm", "LeftHand" },
+	{ "UpperTorso", "RightUpperArm" },
+	{ "RightUpperArm", "RightLowerArm" },
+	{ "RightLowerArm", "RightHand" },
+	{ "LowerTorso", "LeftUpperLeg" },
+	{ "LeftUpperLeg", "LeftLowerLeg" },
+	{ "LeftLowerLeg", "LeftFoot" },
+	{ "LowerTorso", "RightUpperLeg" },
+	{ "RightUpperLeg", "RightLowerLeg" },
+	{ "RightLowerLeg", "RightFoot" }
+}
+
+local MAX_SKELETON_LINES = math.max(#R6_CONNECTIONS, #R15_CONNECTIONS)
 
 function VisualTabModule:Build(Window, Rayfield, Shared)
 	local VisualTab = Window:CreateTab("Visual", "eye")
@@ -36,20 +63,14 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		return character:FindFirstChildOfClass("Humanoid")
 	end
 
-	local function hasAliveHumanoid(player)
-		local humanoid = getHumanoid(player)
-		return humanoid and humanoid.Health > 0
-	end
-
-	local function getFirstPart(character, partNames)
-		for _, partName in ipairs(partNames) do
-			local part = character:FindFirstChild(partName)
-			if part and part:IsA("BasePart") then
-				return part
-			end
+	local function worldToScreen(position)
+		local camera = workspace.CurrentCamera
+		if not camera then
+			return nil, false, -1
 		end
 
-		return nil
+		local viewportPoint, onScreen = camera:WorldToViewportPoint(position)
+		return Vector2.new(viewportPoint.X, viewportPoint.Y), onScreen, viewportPoint.Z
 	end
 
 	local function createLine(thickness)
@@ -66,8 +87,9 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			Box = Drawing.new("Square"),
 			BoxOutline = Drawing.new("Square"),
 			Name = Drawing.new("Text"),
-			HealthBar = createLine(2),
-			HealthBarOutline = createLine(4),
+			HealthBackground = Drawing.new("Square"),
+			HealthFill = Drawing.new("Square"),
+			HealthOutline = Drawing.new("Square"),
 			SkeletonLines = {}
 		}
 
@@ -91,7 +113,24 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		set.Name.Transparency = 1
 		set.Name.Color = espColor
 
-		for _ = 1, 13 do
+		set.HealthBackground.Visible = false
+		set.HealthBackground.Filled = true
+		set.HealthBackground.Thickness = 1
+		set.HealthBackground.Transparency = 0.75
+		set.HealthBackground.Color = Color3.new(0, 0, 0)
+
+		set.HealthFill.Visible = false
+		set.HealthFill.Filled = true
+		set.HealthFill.Thickness = 1
+		set.HealthFill.Transparency = 1
+
+		set.HealthOutline.Visible = false
+		set.HealthOutline.Filled = false
+		set.HealthOutline.Thickness = 1
+		set.HealthOutline.Transparency = 1
+		set.HealthOutline.Color = Color3.new(0, 0, 0)
+
+		for _ = 1, MAX_SKELETON_LINES do
 			table.insert(set.SkeletonLines, createLine(1.5))
 		end
 
@@ -106,8 +145,9 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		set.Box.Visible = false
 		set.BoxOutline.Visible = false
 		set.Name.Visible = false
-		set.HealthBar.Visible = false
-		set.HealthBarOutline.Visible = false
+		set.HealthBackground.Visible = false
+		set.HealthFill.Visible = false
+		set.HealthOutline.Visible = false
 
 		for _, line in ipairs(set.SkeletonLines) do
 			line.Visible = false
@@ -126,8 +166,9 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		set.Box:Remove()
 		set.BoxOutline:Remove()
 		set.Name:Remove()
-		set.HealthBar:Remove()
-		set.HealthBarOutline:Remove()
+		set.HealthBackground:Remove()
+		set.HealthFill:Remove()
+		set.HealthOutline:Remove()
 	end
 
 	local function clearESP()
@@ -137,38 +178,52 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		end
 	end
 
-	local function worldToScreen(position)
-		local viewportPoint, onScreen = Camera:WorldToViewportPoint(position)
-		return Vector2.new(viewportPoint.X, viewportPoint.Y), onScreen, viewportPoint.Z
+	local function getRigConnections(humanoid)
+		if humanoid and humanoid.RigType == Enum.HumanoidRigType.R6 then
+			return R6_CONNECTIONS
+		end
+
+		return R15_CONNECTIONS
 	end
 
-	local function getScreenBounds(character)
-		local minX, minY = math.huge, math.huge
-		local maxX, maxY = -math.huge, -math.huge
-		local pointCount = 0
-
-		for _, descendant in ipairs(character:GetDescendants()) do
-			if descendant:IsA("BasePart") then
-				local screenPos, onScreen, depth = worldToScreen(descendant.Position)
-				if onScreen and depth > 0 then
-					minX = math.min(minX, screenPos.X)
-					minY = math.min(minY, screenPos.Y)
-					maxX = math.max(maxX, screenPos.X)
-					maxY = math.max(maxY, screenPos.Y)
-					pointCount = pointCount + 1
-				end
-			end
-		end
-
-		if pointCount == 0 then
+	local function getBoxBounds(character, humanoid)
+		local root = character:FindFirstChild("HumanoidRootPart")
+		local head = character:FindFirstChild("Head")
+		if not root or not head or not root:IsA("BasePart") or not head:IsA("BasePart") then
 			return nil
 		end
 
-		local width = maxX - minX
+		local topWorld = head.Position + Vector3.new(0, 0.6, 0)
+		local bottomOffset = humanoid.RigType == Enum.HumanoidRigType.R6 and 2.9 or 3.1
+		local bottomWorld = root.Position - Vector3.new(0, bottomOffset, 0)
+
+		local topScreen, topOnScreen, topDepth = worldToScreen(topWorld)
+		local bottomScreen, bottomOnScreen, bottomDepth = worldToScreen(bottomWorld)
+		local rootScreen, rootOnScreen, rootDepth = worldToScreen(root.Position)
+
+		if not topScreen or not bottomScreen or not rootScreen then
+			return nil
+		end
+
+		if not topOnScreen or not bottomOnScreen or not rootOnScreen then
+			return nil
+		end
+
+		if topDepth <= 0 or bottomDepth <= 0 or rootDepth <= 0 then
+			return nil
+		end
+
+		local minY = math.min(topScreen.Y, bottomScreen.Y)
+		local maxY = math.max(topScreen.Y, bottomScreen.Y)
 		local height = maxY - minY
-		if width < 2 or height < 2 then
+		if height < 6 then
 			return nil
 		end
+
+		local widthScale = humanoid.RigType == Enum.HumanoidRigType.R6 and 0.52 or 0.45
+		local width = math.clamp(height * widthScale, 14, 140)
+		local minX = rootScreen.X - (width * 0.5)
+		local maxX = rootScreen.X + (width * 0.5)
 
 		return {
 			MinX = minX,
@@ -177,68 +232,81 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			MaxY = maxY,
 			Width = width,
 			Height = height,
-			CenterX = (minX + maxX) * 0.5
+			CenterX = rootScreen.X
 		}
 	end
 
-	local function getSkeletonPairs(character)
-		local head = getFirstPart(character, { "Head" })
-		local upperTorso = getFirstPart(character, { "UpperTorso", "Torso" })
-		local lowerTorso = getFirstPart(character, { "LowerTorso", "Torso" })
-
-		local leftUpperArm = getFirstPart(character, { "LeftUpperArm", "Left Arm" })
-		local leftLowerArm = getFirstPart(character, { "LeftLowerArm" })
-		local leftHand = getFirstPart(character, { "LeftHand" })
-
-		local rightUpperArm = getFirstPart(character, { "RightUpperArm", "Right Arm" })
-		local rightLowerArm = getFirstPart(character, { "RightLowerArm" })
-		local rightHand = getFirstPart(character, { "RightHand" })
-
-		local leftUpperLeg = getFirstPart(character, { "LeftUpperLeg", "Left Leg" })
-		local leftLowerLeg = getFirstPart(character, { "LeftLowerLeg" })
-		local leftFoot = getFirstPart(character, { "LeftFoot" })
-
-		local rightUpperLeg = getFirstPart(character, { "RightUpperLeg", "Right Leg" })
-		local rightLowerLeg = getFirstPart(character, { "RightLowerLeg" })
-		local rightFoot = getFirstPart(character, { "RightFoot" })
-
-		local pelvis = lowerTorso or upperTorso
-
-		return {
-			{ head, upperTorso },
-			{ upperTorso, lowerTorso },
-			{ upperTorso, leftUpperArm },
-			{ leftUpperArm, leftLowerArm or leftHand },
-			{ leftLowerArm, leftHand },
-			{ upperTorso, rightUpperArm },
-			{ rightUpperArm, rightLowerArm or rightHand },
-			{ rightLowerArm, rightHand },
-			{ pelvis, leftUpperLeg },
-			{ leftUpperLeg, leftLowerLeg or leftFoot },
-			{ leftLowerLeg, leftFoot },
-			{ pelvis, rightUpperLeg },
-			{ rightUpperLeg, rightLowerLeg or rightFoot },
-			{ rightLowerLeg, rightFoot }
-		}
+	local function getHealthColor(ratio)
+		local red = math.floor(255 * (1 - ratio))
+		local green = math.floor(255 * ratio)
+		return Color3.fromRGB(red, green, 40)
 	end
 
-	local function updateSkeleton(set, character)
-		local pairsToDraw = getSkeletonPairs(character)
-		for index, line in ipairs(set.SkeletonLines) do
-			local pair = pairsToDraw[index]
-			if pair and pair[1] and pair[2] then
-				local fromPos, fromOnScreen, fromDepth = worldToScreen(pair[1].Position)
-				local toPos, toOnScreen, toDepth = worldToScreen(pair[2].Position)
-				if fromOnScreen and toOnScreen and fromDepth > 0 and toDepth > 0 then
-					line.From = fromPos
-					line.To = toPos
-					line.Color = espColor
-					line.Visible = true
+	local function updateHealthBar(set, bounds, humanoid)
+		local maxHealth = math.max(humanoid.MaxHealth, 1)
+		local ratio = math.clamp(humanoid.Health / maxHealth, 0, 1)
+
+		local barWidth = 4
+		local barX = bounds.MaxX + 5
+		local barY = bounds.MinY
+		local barHeight = bounds.Height
+		local fillHeight = math.max(1, math.floor(barHeight * ratio))
+
+		set.HealthBackground.Position = Vector2.new(barX, barY)
+		set.HealthBackground.Size = Vector2.new(barWidth, barHeight)
+		set.HealthBackground.Visible = true
+
+		set.HealthFill.Position = Vector2.new(barX, barY + (barHeight - fillHeight))
+		set.HealthFill.Size = Vector2.new(barWidth, fillHeight)
+		set.HealthFill.Color = getHealthColor(ratio)
+		set.HealthFill.Visible = true
+
+		set.HealthOutline.Position = Vector2.new(barX - 1, barY - 1)
+		set.HealthOutline.Size = Vector2.new(barWidth + 2, barHeight + 2)
+		set.HealthOutline.Visible = true
+	end
+
+	local function updateSkeleton(set, character, humanoid)
+		local connections = getRigConnections(humanoid)
+		local partCache = {}
+
+		for _, pair in ipairs(connections) do
+			for i = 1, 2 do
+				local partName = pair[i]
+				if partCache[partName] == nil then
+					local part = character:FindFirstChild(partName)
+					if part and part:IsA("BasePart") then
+						partCache[partName] = part
+					else
+						partCache[partName] = false
+					end
+				end
+			end
+		end
+
+		for lineIndex, line in ipairs(set.SkeletonLines) do
+			local pair = connections[lineIndex]
+			if not pair then
+				line.Visible = false
+			else
+				local partA = partCache[pair[1]]
+				local partB = partCache[pair[2]]
+
+				if partA and partB then
+					local fromPos, fromOnScreen, fromDepth = worldToScreen(partA.Position)
+					local toPos, toOnScreen, toDepth = worldToScreen(partB.Position)
+
+					if fromPos and toPos and fromOnScreen and toOnScreen and fromDepth > 0 and toDepth > 0 then
+						line.From = fromPos
+						line.To = toPos
+						line.Color = espColor
+						line.Visible = true
+					else
+						line.Visible = false
+					end
 				else
 					line.Visible = false
 				end
-			else
-				line.Visible = false
 			end
 		end
 	end
@@ -258,11 +326,12 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		local active = {}
 
 		for _, player in ipairs(Players:GetPlayers()) do
-			if player ~= LocalPlayer and hasAliveHumanoid(player) and not sameTeam(player) then
+			if player ~= LocalPlayer and not sameTeam(player) then
 				local character = player.Character
 				local humanoid = getHumanoid(player)
-				if character and humanoid then
-					local bounds = getScreenBounds(character)
+
+				if character and humanoid and humanoid.Health > 0 then
+					local bounds = getBoxBounds(character, humanoid)
 					if bounds then
 						active[player.UserId] = true
 
@@ -286,27 +355,18 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 						set.Name.Color = espColor
 						set.Name.Visible = true
 
-						local maxHealth = math.max(humanoid.MaxHealth, 1)
-						local healthRatio = math.clamp(humanoid.Health / maxHealth, 0, 1)
-						local healthTopY = bounds.MaxY - (bounds.Height * healthRatio)
-						local healthX = bounds.MaxX + 6
-
-						set.HealthBarOutline.From = Vector2.new(healthX, bounds.MinY)
-						set.HealthBarOutline.To = Vector2.new(healthX, bounds.MaxY)
-						set.HealthBarOutline.Color = Color3.new(0, 0, 0)
-						set.HealthBarOutline.Visible = true
-
-						set.HealthBar.From = Vector2.new(healthX, bounds.MaxY)
-						set.HealthBar.To = Vector2.new(healthX, healthTopY)
-						set.HealthBar.Color = espColor
-						set.HealthBar.Visible = true
-
-						updateSkeleton(set, character)
+						updateHealthBar(set, bounds, humanoid)
+						updateSkeleton(set, character, humanoid)
 					else
 						local set = espObjects[player.UserId]
 						if set then
 							hideObjectSet(set)
 						end
+					end
+				else
+					local set = espObjects[player.UserId]
+					if set then
+						hideObjectSet(set)
 					end
 				end
 			else
@@ -338,6 +398,12 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			espEnabled = value
 			Shared:Notify(Rayfield, "ESP", value and "Enabled" or "Disabled")
 			updateESP()
+
+			if not value then
+				for _, set in pairs(espObjects) do
+					hideObjectSet(set)
+				end
+			end
 		end
 	})
 
@@ -363,12 +429,12 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 
 	if not espUpdateThreadRunning then
 		espUpdateThreadRunning = true
-		task.spawn(function()
-			while task.wait(0.03) do
-				updateESP()
-			end
-		end)
+		RunService.RenderStepped:Connect(updateESP)
 	end
+
+	LocalPlayer.CharacterRemoving:Connect(function()
+		clearESP()
+	end)
 
 	return VisualTab
 end
