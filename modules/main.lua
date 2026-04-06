@@ -1,6 +1,6 @@
 local REPO_OWNER = "aniketlande-dotcom"
 local REPO_NAME = "SAIOPS"
-local REPO_REF = tostring(getgenv().SAIOPS_REPO_REF or "main")
+local REPO_REF = tostring(getgenv().SAIOPS_REPO_REF or "c5d50a0")
 
 local function GetPublicFile(path)
 	return game:HttpGet("https://raw.githubusercontent.com/" .. REPO_OWNER .. "/" .. REPO_NAME .. "/" .. REPO_REF .. "/" .. path, true)
