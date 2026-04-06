@@ -271,6 +271,13 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return nil
 		end
 
+		local anchors = {}
+		for _, ch in ipairs(model:GetChildren()) do
+			if ch:IsA("BasePart") then
+				table.insert(anchors, ch)
+			end
+		end
+
 		local head, feet = parts[1], parts[1]
 		local minY, maxY = parts[1].Position.Y, parts[1].Position.Y
 		local sum = Vector3.new(0, 0, 0)
@@ -309,6 +316,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			MinY = minY,
 			MaxY = maxY,
 			Parts = parts,
+			Anchors = anchors,
 			CenterPos = centerPos,
 			CenterPart = centerPart
 		}
@@ -341,7 +349,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		end
 
 		local data = getCustomModelData(model)
-		if not data or not data.Parts then
+		if not data or not data.Anchors or #data.Anchors < 3 then
 			for i, line in ipairs(set.SkeletonLines) do
 				line.Visible = false
 				set.SkeletonState[i] = nil
@@ -349,19 +357,21 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return
 		end
 
-		local projected = {}
-		for _, part in ipairs(data.Parts) do
+		local projectedAnchors = {}
+		for _, part in ipairs(data.Anchors) do
 			local screenPos, onScreen, depth = worldToScreen(part.Position)
 			if screenPos and onScreen and depth > 0 then
-				table.insert(projected, {
+				table.insert(projectedAnchors, {
+					Part = part,
 					Pos = screenPos,
 					X = screenPos.X,
-					Y = screenPos.Y
+					Y = screenPos.Y,
+					WorldY = part.Position.Y
 				})
 			end
 		end
 
-		if #projected < 5 then
+		if #projectedAnchors < 3 then
 			for i, line in ipairs(set.SkeletonLines) do
 				line.Visible = false
 				set.SkeletonState[i] = nil
@@ -369,81 +379,65 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return
 		end
 
-		table.sort(projected, function(a, b)
-			return a.Y < b.Y
+		table.sort(projectedAnchors, function(a, b)
+			return a.WorldY > b.WorldY
 		end)
 
-		local function pickPoint(targetY, centerX, side)
-			local best = nil
-			local bestScore = math.huge
-			for _, pt in ipairs(projected) do
-				local sidePenalty = 0
-				if side < 0 then
-					sidePenalty = math.max(0, pt.X - centerX)
-				elseif side > 0 then
-					sidePenalty = math.max(0, centerX - pt.X)
-				end
-				local score = math.abs(pt.Y - targetY) + (sidePenalty * 1.35)
-				if score < bestScore then
-					bestScore = score
-					best = pt.Pos
-				end
-			end
-			return best
-		end
-
+		local center = data.CenterPos
 		local centerX = bounds.CenterX
-		local topY = bounds.MinY
-		local height = bounds.Height
 
-		local headPos = projected[1].Pos
-		local neckPos = pickPoint(topY + (height * 0.28), centerX, 0) or headPos
-		local upperTorsoPos = pickPoint(topY + (height * 0.40), centerX, 0) or neckPos
-		local lowerTorsoPos = pickPoint(topY + (height * 0.64), centerX, 0) or upperTorsoPos
+		local head = projectedAnchors[1]
 
-		local leftShoulderPos = pickPoint(topY + (height * 0.38), centerX, -1) or upperTorsoPos
-		local rightShoulderPos = pickPoint(topY + (height * 0.38), centerX, 1) or upperTorsoPos
-		local leftElbowPos = pickPoint(topY + (height * 0.52), centerX, -1) or leftShoulderPos
-		local rightElbowPos = pickPoint(topY + (height * 0.52), centerX, 1) or rightShoulderPos
-		local leftHandPos = pickPoint(topY + (height * 0.62), centerX, -1) or leftElbowPos
-		local rightHandPos = pickPoint(topY + (height * 0.62), centerX, 1) or rightElbowPos
+		table.sort(projectedAnchors, function(a, b)
+			return a.WorldY < b.WorldY
+		end)
+		local lowA = projectedAnchors[1]
+		local lowB = projectedAnchors[math.min(2, #projectedAnchors)]
 
-		local leftHipPos = pickPoint(topY + (height * 0.67), centerX, -1) or lowerTorsoPos
-		local rightHipPos = pickPoint(topY + (height * 0.67), centerX, 1) or lowerTorsoPos
-		local leftKneePos = pickPoint(topY + (height * 0.83), centerX, -1) or leftHipPos
-		local rightKneePos = pickPoint(topY + (height * 0.83), centerX, 1) or rightHipPos
+		if lowA and lowB and lowA.X > lowB.X then
+			lowA, lowB = lowB, lowA
+		end
 
-		local leftFootCandidate, rightFootCandidate = nil, nil
-		local bottomStart = math.max(1, #projected - 5)
-		for idx = bottomStart, #projected do
-			local pt = projected[idx]
-			if not leftFootCandidate or pt.X < leftFootCandidate.X then
-				leftFootCandidate = pt
-			end
-			if not rightFootCandidate or pt.X > rightFootCandidate.X then
-				rightFootCandidate = pt
+		local torso = nil
+		for _, p in ipairs(projectedAnchors) do
+			if p ~= lowA and p ~= lowB and p ~= head then
+				local worldPos = p.Part.Position
+				local dist = (worldPos - center).Magnitude
+				if not torso or dist < torso.Dist then
+					torso = { Pos = p.Pos, Dist = dist }
+				end
 			end
 		end
 
-		local leftFootPos = (leftFootCandidate and leftFootCandidate.Pos) or leftKneePos
-		local rightFootPos = (rightFootCandidate and rightFootCandidate.Pos) or rightKneePos
+		local torsoPos = torso and torso.Pos or Vector2.new(centerX, bounds.MinY + (bounds.Height * 0.45))
+		local headPos = head and head.Pos or Vector2.new(centerX, bounds.MinY + (bounds.Height * 0.12))
+
+		local leftArm, rightArm = nil, nil
+		for _, p in ipairs(projectedAnchors) do
+			if p ~= head and p ~= lowA and p ~= lowB then
+				if p.X < centerX then
+					if not leftArm or p.X < leftArm.X then
+						leftArm = p
+					end
+				else
+					if not rightArm or p.X > rightArm.X then
+						rightArm = p
+					end
+				end
+			end
+		end
+
+		local leftArmPos = leftArm and leftArm.Pos or Vector2.new(bounds.MinX + bounds.Width * 0.2, bounds.MinY + bounds.Height * 0.45)
+		local rightArmPos = rightArm and rightArm.Pos or Vector2.new(bounds.MaxX - bounds.Width * 0.2, bounds.MinY + bounds.Height * 0.45)
+		local leftLegPos = lowA and lowA.Pos or Vector2.new(bounds.MinX + bounds.Width * 0.35, bounds.MaxY)
+		local rightLegPos = lowB and lowB.Pos or Vector2.new(bounds.MaxX - bounds.Width * 0.35, bounds.MaxY)
 
 		local pairsList = {
-			{ headPos, neckPos },
-			{ neckPos, upperTorsoPos },
-			{ upperTorsoPos, lowerTorsoPos },
-			{ upperTorsoPos, leftShoulderPos },
-			{ leftShoulderPos, leftElbowPos },
-			{ leftElbowPos, leftHandPos },
-			{ upperTorsoPos, rightShoulderPos },
-			{ rightShoulderPos, rightElbowPos },
-			{ rightElbowPos, rightHandPos },
-			{ lowerTorsoPos, leftHipPos },
-			{ leftHipPos, leftKneePos },
-			{ leftKneePos, leftFootPos },
-			{ lowerTorsoPos, rightHipPos },
-			{ rightHipPos, rightKneePos },
-			{ rightKneePos, rightFootPos }
+			{ headPos, torsoPos },
+			{ torsoPos, leftArmPos },
+			{ torsoPos, rightArmPos },
+			{ torsoPos, leftLegPos },
+			{ torsoPos, rightLegPos }
 		}
 
 		for i, line in ipairs(set.SkeletonLines) do
@@ -773,41 +767,42 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		end
 
 		local data = getCustomModelData(model)
-		if not data then
+		if not data or not data.Parts then
 			return nil
 		end
 
-		local centerWorld = data.CenterPos or targetPart.Position
-		local topWorld = Vector3.new(centerWorld.X, data.MaxY + 0.3, centerWorld.Z)
-		local bottomWorld = Vector3.new(centerWorld.X, data.MinY - 0.3, centerWorld.Z)
+		local minX, minY = math.huge, math.huge
+		local maxX, maxY = -math.huge, -math.huge
+		local visibleCount = 0
 
-		local topScreen, topOn, topDepth = worldToScreen(topWorld)
-		local bottomScreen, bottomOn, bottomDepth = worldToScreen(bottomWorld)
-		local centerScreen, centerOn, centerDepth = worldToScreen(centerWorld)
-
-		if not topScreen or not bottomScreen or not centerScreen then
-			return nil
-		end
-		if not topOn or not bottomOn or not centerOn then
-			return nil
-		end
-		if topDepth <= 0 or bottomDepth <= 0 or centerDepth <= 0 then
-			return nil
+		for _, part in ipairs(data.Parts) do
+			local screenPos, onScreen, depth = worldToScreen(part.Position)
+			if screenPos and onScreen and depth > 0 then
+				visibleCount = visibleCount + 1
+				if screenPos.X < minX then minX = screenPos.X end
+				if screenPos.X > maxX then maxX = screenPos.X end
+				if screenPos.Y < minY then minY = screenPos.Y end
+				if screenPos.Y > maxY then maxY = screenPos.Y end
+			end
 		end
 
-		local minY = math.min(topScreen.Y, bottomScreen.Y)
-		local maxY = math.max(topScreen.Y, bottomScreen.Y)
+		if visibleCount < 4 then
+			return nil
+		end
+
 		local height = maxY - minY
 		if height < 8 then
 			return nil
 		end
 
-		local baseWidth = height * 0.42
-		local width = math.clamp(baseWidth, 2, 120)
-		width = math.min(width, math.max(4, height * 0.72))
-		local centerX = centerScreen.X
-		local minX = centerX - (width * 0.5)
-		local maxX = centerX + (width * 0.5)
+		local width = maxX - minX
+		local minAllowed = height * 0.2
+		local maxAllowed = height * 0.72
+		width = math.clamp(width, minAllowed, maxAllowed)
+
+		local centerX = (minX + maxX) * 0.5
+		minX = centerX - (width * 0.5)
+		maxX = centerX + (width * 0.5)
 
 		return {
 			MinX = minX,
