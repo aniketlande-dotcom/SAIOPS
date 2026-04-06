@@ -275,6 +275,8 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		}
 	end
 
+	local worldToScreen
+
 	local function updateCustomSkeleton(set, model, trackingPart, alpha, thickness, lineColor)
 		if not showSkeleton then
 			for i, line in ipairs(set.SkeletonLines) do
@@ -360,7 +362,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		set.HeadCircle.Visible = true
 	end
 
-	local function worldToScreen(position)
+	worldToScreen = function(position)
 		local camera = workspace.CurrentCamera
 		if not camera then
 			return nil, false, -1

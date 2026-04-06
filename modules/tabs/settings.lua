@@ -12,7 +12,7 @@ function SettingsTabModule:Build(Window, Rayfield, Shared)
 
 	SettingsTab:CreateKeybind({
 		Name = "Toggle UI",
-		CurrentKeybind = "RightCtrl",
+		CurrentKeybind = "RightControl",
 		HoldToInteract = false,
 		Flag = "toggle_ui_keybind",
 		Callback = function()
