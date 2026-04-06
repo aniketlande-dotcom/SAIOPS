@@ -69,7 +69,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 	local espObjects = {}
 	local visibilityCache = {}
 	local customModelCache = {}
-	local customCacheTtl = 0.25
+	local customCacheTtl = 0.08
 
 	local function sameTeam(player)
 		if not teamCheckEnabled then
@@ -149,16 +149,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 	end
 
 	local function shouldRenderCustomModel(model)
-		if not teamCheckEnabled then
-			return true
-		end
-
-		local modelPlayer = getModelPlayerFromTag(model)
-		if not modelPlayer then
-			return false
-		end
-
-		return not sameTeam(modelPlayer)
+		return model and model.Parent ~= nil
 	end
 
 	local function getCustomCharacterModels()
@@ -168,12 +159,15 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		end
 
 		local topChildren = playersFolder:GetChildren()
+		local enemyFolder = topChildren[1]
+		if not enemyFolder then
+			return {}
+		end
+
 		local models = {}
-		for _, sideFolder in ipairs(topChildren) do
-			for _, model in ipairs(sideFolder:GetChildren()) do
-				if model:IsA("Model") or model:IsA("Folder") then
-					table.insert(models, model)
-				end
+		for _, model in ipairs(enemyFolder:GetChildren()) do
+			if model:IsA("Model") or model:IsA("Folder") then
+				table.insert(models, model)
 			end
 		end
 
@@ -233,8 +227,27 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 	end
 
 	local function getMeshParts(model, maxCount)
+		local container = model
+		local bestDirectMeshCount = 0
+
+		for _, child in ipairs(model:GetChildren()) do
+			if child:IsA("Folder") or child:IsA("Model") then
+				local directCount = 0
+				for _, nested in ipairs(child:GetChildren()) do
+					if nested:IsA("MeshPart") then
+						directCount = directCount + 1
+					end
+				end
+
+				if directCount > bestDirectMeshCount then
+					bestDirectMeshCount = directCount
+					container = child
+				end
+			end
+		end
+
 		local parts = {}
-		for _, d in ipairs(model:GetDescendants()) do
+		for _, d in ipairs(container:GetDescendants()) do
 			if d:IsA("MeshPart") then
 				table.insert(parts, d)
 				if #parts >= (maxCount or 24) then
@@ -260,8 +273,10 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 
 		local head, feet = parts[1], parts[1]
 		local minY, maxY = parts[1].Position.Y, parts[1].Position.Y
+		local sum = Vector3.new(0, 0, 0)
 
 		for _, p in ipairs(parts) do
+			sum = sum + p.Position
 			if p.Position.Y > head.Position.Y then
 				head = p
 			end
@@ -276,12 +291,26 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			end
 		end
 
+		local centerPos = sum / #parts
+		local centerPart = parts[1]
+		local bestDist = (parts[1].Position - centerPos).Magnitude
+		for i = 2, #parts do
+			local dist = (parts[i].Position - centerPos).Magnitude
+			if dist < bestDist then
+				bestDist = dist
+				centerPart = parts[i]
+			end
+		end
+
 		local data = {
 			Time = now,
 			Head = head,
 			Feet = feet,
 			MinY = minY,
-			MaxY = maxY
+			MaxY = maxY,
+			Parts = parts,
+			CenterPos = centerPos,
+			CenterPart = centerPart
 		}
 		customModelCache[model] = data
 		return data
@@ -311,53 +340,107 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return
 		end
 
-		-- Estimate skeleton positions based on bounding box proportions (like default mode)
-		local headPos = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.15))
-		local neckPos = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.28))
-		local upperTorsoPos = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.40))
-		local lowerTorsoPos = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.65))
-		
-		-- Upper limbs (arms positioned relative to shoulder width)
-		local leftShoulderPos = Vector2.new(bounds.MinX + (bounds.Width * 0.15), bounds.MinY + (bounds.Height * 0.38))
-		local rightShoulderPos = Vector2.new(bounds.MaxX - (bounds.Width * 0.15), bounds.MinY + (bounds.Height * 0.38))
-		local leftElbowPos = Vector2.new(bounds.MinX + (bounds.Width * 0.12), bounds.MinY + (bounds.Height * 0.52))
-		local rightElbowPos = Vector2.new(bounds.MaxX - (bounds.Width * 0.12), bounds.MinY + (bounds.Height * 0.52))
-		local leftHandPos = Vector2.new(bounds.MinX + (bounds.Width * 0.10), bounds.MinY + (bounds.Height * 0.62))
-		local rightHandPos = Vector2.new(bounds.MaxX - (bounds.Width * 0.10), bounds.MinY + (bounds.Height * 0.62))
-		
-		-- Lower limbs (legs positioned with ankle width)
-		local leftHipPos = Vector2.new(bounds.MinX + (bounds.Width * 0.28), bounds.MinY + (bounds.Height * 0.65))
-		local rightHipPos = Vector2.new(bounds.MaxX - (bounds.Width * 0.28), bounds.MinY + (bounds.Height * 0.65))
-		local leftKneePos = Vector2.new(bounds.MinX + (bounds.Width * 0.25), bounds.MinY + (bounds.Height * 0.83))
-		local rightKneePos = Vector2.new(bounds.MaxX - (bounds.Width * 0.25), bounds.MinY + (bounds.Height * 0.83))
-		local leftFootPos = Vector2.new(bounds.MinX + (bounds.Width * 0.23), bounds.MaxY)
-		local rightFootPos = Vector2.new(bounds.MaxX - (bounds.Width * 0.23), bounds.MaxY)
+		local data = getCustomModelData(model)
+		if not data or not data.Parts then
+			for i, line in ipairs(set.SkeletonLines) do
+				line.Visible = false
+				set.SkeletonState[i] = nil
+			end
+			return
+		end
 
-		-- R6-like skeleton with better limb representation (13 bones similar to R15)
+		local projected = {}
+		for _, part in ipairs(data.Parts) do
+			local screenPos, onScreen, depth = worldToScreen(part.Position)
+			if screenPos and onScreen and depth > 0 then
+				table.insert(projected, {
+					Pos = screenPos,
+					X = screenPos.X,
+					Y = screenPos.Y
+				})
+			end
+		end
+
+		if #projected < 5 then
+			for i, line in ipairs(set.SkeletonLines) do
+				line.Visible = false
+				set.SkeletonState[i] = nil
+			end
+			return
+		end
+
+		table.sort(projected, function(a, b)
+			return a.Y < b.Y
+		end)
+
+		local function pickPoint(targetY, centerX, side)
+			local best = nil
+			local bestScore = math.huge
+			for _, pt in ipairs(projected) do
+				local sidePenalty = 0
+				if side < 0 then
+					sidePenalty = math.max(0, pt.X - centerX)
+				elseif side > 0 then
+					sidePenalty = math.max(0, centerX - pt.X)
+				end
+				local score = math.abs(pt.Y - targetY) + (sidePenalty * 1.35)
+				if score < bestScore then
+					bestScore = score
+					best = pt.Pos
+				end
+			end
+			return best
+		end
+
+		local centerX = bounds.CenterX
+		local topY = bounds.MinY
+		local height = bounds.Height
+
+		local headPos = projected[1].Pos
+		local neckPos = pickPoint(topY + (height * 0.28), centerX, 0) or headPos
+		local upperTorsoPos = pickPoint(topY + (height * 0.40), centerX, 0) or neckPos
+		local lowerTorsoPos = pickPoint(topY + (height * 0.64), centerX, 0) or upperTorsoPos
+
+		local leftShoulderPos = pickPoint(topY + (height * 0.38), centerX, -1) or upperTorsoPos
+		local rightShoulderPos = pickPoint(topY + (height * 0.38), centerX, 1) or upperTorsoPos
+		local leftElbowPos = pickPoint(topY + (height * 0.52), centerX, -1) or leftShoulderPos
+		local rightElbowPos = pickPoint(topY + (height * 0.52), centerX, 1) or rightShoulderPos
+		local leftHandPos = pickPoint(topY + (height * 0.62), centerX, -1) or leftElbowPos
+		local rightHandPos = pickPoint(topY + (height * 0.62), centerX, 1) or rightElbowPos
+
+		local leftHipPos = pickPoint(topY + (height * 0.67), centerX, -1) or lowerTorsoPos
+		local rightHipPos = pickPoint(topY + (height * 0.67), centerX, 1) or lowerTorsoPos
+		local leftKneePos = pickPoint(topY + (height * 0.83), centerX, -1) or leftHipPos
+		local rightKneePos = pickPoint(topY + (height * 0.83), centerX, 1) or rightHipPos
+
+		local leftFootCandidate, rightFootCandidate = nil, nil
+		local bottomStart = math.max(1, #projected - 5)
+		for idx = bottomStart, #projected do
+			local pt = projected[idx]
+			if not leftFootCandidate or pt.X < leftFootCandidate.X then
+				leftFootCandidate = pt
+			end
+			if not rightFootCandidate or pt.X > rightFootCandidate.X then
+				rightFootCandidate = pt
+			end
+		end
+
+		local leftFootPos = (leftFootCandidate and leftFootCandidate.Pos) or leftKneePos
+		local rightFootPos = (rightFootCandidate and rightFootCandidate.Pos) or rightKneePos
+
 		local pairsList = {
-			-- Head and neck
 			{ headPos, neckPos },
 			{ neckPos, upperTorsoPos },
-			
-			-- Torso
 			{ upperTorsoPos, lowerTorsoPos },
-			
-			-- Left arm
 			{ upperTorsoPos, leftShoulderPos },
 			{ leftShoulderPos, leftElbowPos },
 			{ leftElbowPos, leftHandPos },
-			
-			-- Right arm
 			{ upperTorsoPos, rightShoulderPos },
 			{ rightShoulderPos, rightElbowPos },
 			{ rightElbowPos, rightHandPos },
-			
-			-- Left leg
 			{ lowerTorsoPos, leftHipPos },
 			{ leftHipPos, leftKneePos },
 			{ leftKneePos, leftFootPos },
-			
-			-- Right leg
 			{ lowerTorsoPos, rightHipPos },
 			{ rightHipPos, rightKneePos },
 			{ rightKneePos, rightFootPos }
@@ -369,13 +452,30 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 				line.Visible = false
 				set.SkeletonState[i] = nil
 			else
-				line.From = pair[1]
-				line.To = pair[2]
+				local drawFrom = pair[1]
+				local drawTo = pair[2]
+
+				if skeletonSmoothingEnabled then
+					local state = set.SkeletonState[i]
+					if not state then
+						state = { From = drawFrom, To = drawTo }
+						set.SkeletonState[i] = state
+					end
+
+					state.From = state.From:Lerp(drawFrom, skeletonSmoothingAlpha)
+					state.To = state.To:Lerp(drawTo, skeletonSmoothingAlpha)
+					drawFrom = state.From
+					drawTo = state.To
+				else
+					set.SkeletonState[i] = nil
+				end
+
+				line.From = drawFrom
+				line.To = drawTo
 				line.Color = lineColor
 				line.Transparency = alpha
 				line.Thickness = math.max(1, thickness)
 				line.Visible = true
-				set.SkeletonState[i] = nil
 			end
 		end
 	end
@@ -387,7 +487,19 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return
 		end
 
-		local center = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.15))
+		local data = getCustomModelData(model)
+		local headPart = data and data.Head
+		local center = nil
+		if headPart then
+			local projected, onScreen, depth = worldToScreen(headPart.Position)
+			if projected and onScreen and depth > 0 then
+				center = projected
+			end
+		end
+
+		if not center then
+			center = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.15))
+		end
 		local radius = math.clamp(bounds.Width * 0.18, 4, 32)
 
 		set.HeadCircleOutline.Position = center
@@ -665,13 +777,13 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return nil
 		end
 
-		-- Use slightly larger offsets for stability and better visual coverage
-		local topWorld = Vector3.new(targetPart.Position.X, data.MaxY + 0.3, targetPart.Position.Z)
-		local bottomWorld = Vector3.new(targetPart.Position.X, data.MinY - 0.3, targetPart.Position.Z)
+		local centerWorld = data.CenterPos or targetPart.Position
+		local topWorld = Vector3.new(centerWorld.X, data.MaxY + 0.3, centerWorld.Z)
+		local bottomWorld = Vector3.new(centerWorld.X, data.MinY - 0.3, centerWorld.Z)
 
 		local topScreen, topOn, topDepth = worldToScreen(topWorld)
 		local bottomScreen, bottomOn, bottomDepth = worldToScreen(bottomWorld)
-		local centerScreen, centerOn, centerDepth = worldToScreen(targetPart.Position)
+		local centerScreen, centerOn, centerDepth = worldToScreen(centerWorld)
 
 		if not topScreen or not bottomScreen or not centerScreen then
 			return nil
@@ -690,8 +802,9 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return nil
 		end
 
-		-- Consistent width calculation with locked aspect ratio
-		local width = math.clamp(height * 0.42, 12, 120)
+		local baseWidth = height * 0.42
+		local width = math.clamp(baseWidth, 2, 120)
+		width = math.min(width, math.max(4, height * 0.72))
 		local centerX = centerScreen.X
 		local minX = centerX - (width * 0.5)
 		local maxX = centerX + (width * 0.5)
@@ -895,17 +1008,10 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			local myRoot = getRootPart(LocalPlayer)
 
 			for _, enemyModel in ipairs(getCustomCharacterModels()) do
-				if not shouldRenderCustomModel(enemyModel) then
-					local set = espObjects[enemyModel]
-					if set then
-						hideObjectSet(set)
-					end
-					visibilityCache[enemyModel] = nil
-					continue
-				end
-
-				local trackingPart = getFirstMeshPartRecursive(enemyModel)
-				if trackingPart then
+				if shouldRenderCustomModel(enemyModel) then
+					local modelData = getCustomModelData(enemyModel)
+					local trackingPart = modelData and (modelData.CenterPart or modelData.Head) or getFirstMeshPartRecursive(enemyModel)
+					if trackingPart then
 					local distance = myRoot and (myRoot.Position - trackingPart.Position).Magnitude or 0
 					if distance <= maxRenderDistance then
 						local bounds = getBoxBoundsFromPart(enemyModel, trackingPart)
@@ -1002,7 +1108,19 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 							end
 							visibilityCache[enemyModel] = nil
 						end
+					else
+						local set = espObjects[enemyModel]
+						if set then
+							hideObjectSet(set)
+						end
+						visibilityCache[enemyModel] = nil
 					end
+				else
+					local set = espObjects[enemyModel]
+					if set then
+						hideObjectSet(set)
+					end
+					visibilityCache[enemyModel] = nil
 				end
 			end
 
