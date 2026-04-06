@@ -30,7 +30,7 @@ local R15_CONNECTIONS = {
 	{ "RightLowerLeg", "RightFoot" }
 }
 
-local MAX_SKELETON_LINES = math.max(#R6_CONNECTIONS, #R15_CONNECTIONS)
+local MAX_SKELETON_LINES = math.max(#R6_CONNECTIONS, #R15_CONNECTIONS, 15) -- 15 bones for custom Phantom Forces skeleton
 
 function VisualTabModule:Build(Window, Rayfield, Shared)
 	local VisualTab = Window:CreateTab("Visual", "eye")
@@ -311,26 +311,56 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return
 		end
 
-		local pts = getCustomSkeletonPoints(model, trackingPart)
-		if not pts then
-			for i, line in ipairs(set.SkeletonLines) do
-				line.Visible = false
-				set.SkeletonState[i] = nil
-			end
-			return
-		end
+		-- Estimate skeleton positions based on bounding box proportions (like default mode)
+		local headPos = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.15))
+		local neckPos = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.28))
+		local upperTorsoPos = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.40))
+		local lowerTorsoPos = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.65))
+		
+		-- Upper limbs (arms positioned relative to shoulder width)
+		local leftShoulderPos = Vector2.new(bounds.MinX + (bounds.Width * 0.15), bounds.MinY + (bounds.Height * 0.38))
+		local rightShoulderPos = Vector2.new(bounds.MaxX - (bounds.Width * 0.15), bounds.MinY + (bounds.Height * 0.38))
+		local leftElbowPos = Vector2.new(bounds.MinX + (bounds.Width * 0.12), bounds.MinY + (bounds.Height * 0.52))
+		local rightElbowPos = Vector2.new(bounds.MaxX - (bounds.Width * 0.12), bounds.MinY + (bounds.Height * 0.52))
+		local leftHandPos = Vector2.new(bounds.MinX + (bounds.Width * 0.10), bounds.MinY + (bounds.Height * 0.62))
+		local rightHandPos = Vector2.new(bounds.MaxX - (bounds.Width * 0.10), bounds.MinY + (bounds.Height * 0.62))
+		
+		-- Lower limbs (legs positioned with ankle width)
+		local leftHipPos = Vector2.new(bounds.MinX + (bounds.Width * 0.28), bounds.MinY + (bounds.Height * 0.65))
+		local rightHipPos = Vector2.new(bounds.MaxX - (bounds.Width * 0.28), bounds.MinY + (bounds.Height * 0.65))
+		local leftKneePos = Vector2.new(bounds.MinX + (bounds.Width * 0.25), bounds.MinY + (bounds.Height * 0.83))
+		local rightKneePos = Vector2.new(bounds.MaxX - (bounds.Width * 0.25), bounds.MinY + (bounds.Height * 0.83))
+		local leftFootPos = Vector2.new(bounds.MinX + (bounds.Width * 0.23), bounds.MaxY)
+		local rightFootPos = Vector2.new(bounds.MaxX - (bounds.Width * 0.23), bounds.MaxY)
 
-		local headPos = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.16))
-		local centerPos = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.45))
-		local leftPos = Vector2.new(bounds.MinX + (bounds.Width * 0.25), bounds.MinY + (bounds.Height * 0.42))
-		local rightPos = Vector2.new(bounds.MaxX - (bounds.Width * 0.25), bounds.MinY + (bounds.Height * 0.42))
-		local feetPos = Vector2.new(bounds.CenterX, bounds.MaxY)
-
+		-- R6-like skeleton with better limb representation (13 bones similar to R15)
 		local pairsList = {
-			{ headPos, centerPos },
-			{ centerPos, leftPos },
-			{ centerPos, rightPos },
-			{ centerPos, feetPos }
+			-- Head and neck
+			{ headPos, neckPos },
+			{ neckPos, upperTorsoPos },
+			
+			-- Torso
+			{ upperTorsoPos, lowerTorsoPos },
+			
+			-- Left arm
+			{ upperTorsoPos, leftShoulderPos },
+			{ leftShoulderPos, leftElbowPos },
+			{ leftElbowPos, leftHandPos },
+			
+			-- Right arm
+			{ upperTorsoPos, rightShoulderPos },
+			{ rightShoulderPos, rightElbowPos },
+			{ rightElbowPos, rightHandPos },
+			
+			-- Left leg
+			{ lowerTorsoPos, leftHipPos },
+			{ leftHipPos, leftKneePos },
+			{ leftKneePos, leftFootPos },
+			
+			-- Right leg
+			{ lowerTorsoPos, rightHipPos },
+			{ rightHipPos, rightKneePos },
+			{ rightKneePos, rightFootPos }
 		}
 
 		for i, line in ipairs(set.SkeletonLines) do
@@ -345,6 +375,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 				line.Transparency = alpha
 				line.Thickness = math.max(1, thickness)
 				line.Visible = true
+				set.SkeletonState[i] = nil
 			end
 		end
 	end
@@ -356,8 +387,8 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return
 		end
 
-		local center = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.16))
-		local radius = math.clamp(bounds.Width * 0.22, 4, 32)
+		local center = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.15))
+		local radius = math.clamp(bounds.Width * 0.18, 4, 32)
 
 		set.HeadCircleOutline.Position = center
 		set.HeadCircleOutline.Radius = radius
@@ -432,8 +463,9 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 
 		set.Box.Visible = false
 		set.Box.Filled = false
-		set.Box.Thickness = 1
+		set.Box.Thickness = 1.5
 		set.Box.Transparency = 1
+		set.Box.Color = Color3.new(1, 0, 0) -- Initialize to red, will be overridden
 
 		set.BoxOutline.Visible = false
 		set.BoxOutline.Filled = false
@@ -633,8 +665,9 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return nil
 		end
 
-		local topWorld = Vector3.new(targetPart.Position.X, data.MaxY + 0.18, targetPart.Position.Z)
-		local bottomWorld = Vector3.new(targetPart.Position.X, data.MinY - 0.18, targetPart.Position.Z)
+		-- Use slightly larger offsets for stability and better visual coverage
+		local topWorld = Vector3.new(targetPart.Position.X, data.MaxY + 0.3, targetPart.Position.Z)
+		local bottomWorld = Vector3.new(targetPart.Position.X, data.MinY - 0.3, targetPart.Position.Z)
 
 		local topScreen, topOn, topDepth = worldToScreen(topWorld)
 		local bottomScreen, bottomOn, bottomDepth = worldToScreen(bottomWorld)
@@ -657,7 +690,8 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return nil
 		end
 
-		local width = math.clamp(height * 0.43, 8, 120)
+		-- Consistent width calculation with locked aspect ratio
+		local width = math.clamp(height * 0.42, 12, 120)
 		local centerX = centerScreen.X
 		local minX = centerX - (width * 0.5)
 		local maxX = centerX + (width * 0.5)
