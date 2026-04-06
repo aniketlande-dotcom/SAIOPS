@@ -1123,6 +1123,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 					visibilityCache[enemyModel] = nil
 				end
 			end
+			end
 
 			for key, set in pairs(espObjects) do
 				if not active[key] then
