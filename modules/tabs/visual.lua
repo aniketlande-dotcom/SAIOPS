@@ -68,6 +68,8 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 	local drawingAvailable = type(Drawing) == "table" and type(Drawing.new) == "function"
 	local espObjects = {}
 	local visibilityCache = {}
+	local customModelCache = {}
+	local customCacheTtl = 0.25
 
 	local function sameTeam(player)
 		if not teamCheckEnabled then
@@ -243,14 +245,22 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		return parts
 	end
 
-	local function getCustomSkeletonPoints(model, trackingPart)
-		local parts = getMeshParts(model, 24)
+	local function getCustomModelData(model)
+		local now = os.clock()
+		local cached = customModelCache[model]
+		if cached and (now - cached.Time) <= customCacheTtl and model.Parent then
+			return cached
+		end
+
+		local parts = getMeshParts(model, 40)
 		if #parts == 0 then
+			customModelCache[model] = nil
 			return nil
 		end
 
 		local head, feet = parts[1], parts[1]
-		local left, right = parts[1], parts[1]
+		local minY, maxY = parts[1].Position.Y, parts[1].Position.Y
+
 		for _, p in ipairs(parts) do
 			if p.Position.Y > head.Position.Y then
 				head = p
@@ -258,26 +268,41 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			if p.Position.Y < feet.Position.Y then
 				feet = p
 			end
-			if p.Position.X < left.Position.X then
-				left = p
+			if p.Position.Y < minY then
+				minY = p.Position.Y
 			end
-			if p.Position.X > right.Position.X then
-				right = p
+			if p.Position.Y > maxY then
+				maxY = p.Position.Y
 			end
 		end
 
-		return {
+		local data = {
+			Time = now,
 			Head = head,
-			Center = trackingPart or head,
-			Left = left,
-			Right = right,
-			Feet = feet
+			Feet = feet,
+			MinY = minY,
+			MaxY = maxY
+		}
+		customModelCache[model] = data
+		return data
+	end
+
+	local function getCustomSkeletonPoints(model, trackingPart)
+		local data = getCustomModelData(model)
+		if not data then
+			return nil
+		end
+
+		return {
+			Head = data.Head,
+			Center = trackingPart or data.Head,
+			Feet = data.Feet
 		}
 	end
 
 	local worldToScreen
 
-	local function updateCustomSkeleton(set, model, trackingPart, alpha, thickness, lineColor)
+	local function updateCustomSkeleton(set, model, trackingPart, bounds, alpha, thickness, lineColor)
 		if not showSkeleton then
 			for i, line in ipairs(set.SkeletonLines) do
 				line.Visible = false
@@ -295,11 +320,17 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return
 		end
 
+		local headPos = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.16))
+		local centerPos = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.45))
+		local leftPos = Vector2.new(bounds.MinX + (bounds.Width * 0.25), bounds.MinY + (bounds.Height * 0.42))
+		local rightPos = Vector2.new(bounds.MaxX - (bounds.Width * 0.25), bounds.MinY + (bounds.Height * 0.42))
+		local feetPos = Vector2.new(bounds.CenterX, bounds.MaxY)
+
 		local pairsList = {
-			{ pts.Head, pts.Center },
-			{ pts.Center, pts.Left },
-			{ pts.Center, pts.Right },
-			{ pts.Center, pts.Feet }
+			{ headPos, centerPos },
+			{ centerPos, leftPos },
+			{ centerPos, rightPos },
+			{ centerPos, feetPos }
 		}
 
 		for i, line in ipairs(set.SkeletonLines) do
@@ -308,19 +339,12 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 				line.Visible = false
 				set.SkeletonState[i] = nil
 			else
-				local fromPos, fromOn, fromDepth = worldToScreen(pair[1].Position)
-				local toPos, toOn, toDepth = worldToScreen(pair[2].Position)
-				if fromPos and toPos and fromOn and toOn and fromDepth > 0 and toDepth > 0 then
-					line.From = fromPos
-					line.To = toPos
-					line.Color = lineColor
-					line.Transparency = alpha
-					line.Thickness = math.max(1, thickness)
-					line.Visible = true
-				else
-					line.Visible = false
-					set.SkeletonState[i] = nil
-				end
+				line.From = pair[1]
+				line.To = pair[2]
+				line.Color = lineColor
+				line.Transparency = alpha
+				line.Thickness = math.max(1, thickness)
+				line.Visible = true
 			end
 		end
 	end
@@ -332,22 +356,8 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 			return
 		end
 
-		local pts = getCustomSkeletonPoints(model, trackingPart)
-		local head = pts and pts.Head or trackingPart
-		if not head then
-			set.HeadCircle.Visible = false
-			set.HeadCircleOutline.Visible = false
-			return
-		end
-
-		local center, onScreen, depth = worldToScreen(head.Position)
-		if not center or not onScreen or depth <= 0 then
-			set.HeadCircle.Visible = false
-			set.HeadCircleOutline.Visible = false
-			return
-		end
-
-		local radius = math.clamp(bounds.Width * 0.22, 4, 35)
+		local center = Vector2.new(bounds.CenterX, bounds.MinY + (bounds.Height * 0.16))
+		local radius = math.clamp(bounds.Width * 0.22, 4, 32)
 
 		set.HeadCircleOutline.Position = center
 		set.HeadCircleOutline.Radius = radius
@@ -613,48 +623,44 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		}
 	end
 
-	local function getBoxBoundsFromPart(targetPart)
-		if not targetPart or not targetPart:IsA("BasePart") then
+	local function getBoxBoundsFromPart(model, targetPart)
+		if not model or not targetPart or not targetPart:IsA("BasePart") then
 			return nil
 		end
 
-		local size = targetPart.Size * 0.5
-		local cf = targetPart.CFrame
-		local corners = {
-			cf * Vector3.new(-size.X, -size.Y, -size.Z),
-			cf * Vector3.new(-size.X, -size.Y, size.Z),
-			cf * Vector3.new(-size.X, size.Y, -size.Z),
-			cf * Vector3.new(-size.X, size.Y, size.Z),
-			cf * Vector3.new(size.X, -size.Y, -size.Z),
-			cf * Vector3.new(size.X, -size.Y, size.Z),
-			cf * Vector3.new(size.X, size.Y, -size.Z),
-			cf * Vector3.new(size.X, size.Y, size.Z)
-		}
-
-		local minX, minY = math.huge, math.huge
-		local maxX, maxY = -math.huge, -math.huge
-		local onScreenCount = 0
-
-		for _, cornerWorld in ipairs(corners) do
-			local point, onScreen, depth = worldToScreen(cornerWorld)
-			if point and depth > 0 then
-				if onScreen then
-					onScreenCount = onScreenCount + 1
-				end
-				minX = math.min(minX, point.X)
-				minY = math.min(minY, point.Y)
-				maxX = math.max(maxX, point.X)
-				maxY = math.max(maxY, point.Y)
-			end
-		end
-
-		if onScreenCount == 0 or minX == math.huge or minY == math.huge then
+		local data = getCustomModelData(model)
+		if not data then
 			return nil
 		end
 
-		local width = math.max(6, maxX - minX)
-		local height = math.max(10, maxY - minY)
-		local centerX = minX + (width * 0.5)
+		local topWorld = Vector3.new(targetPart.Position.X, data.MaxY + 0.18, targetPart.Position.Z)
+		local bottomWorld = Vector3.new(targetPart.Position.X, data.MinY - 0.18, targetPart.Position.Z)
+
+		local topScreen, topOn, topDepth = worldToScreen(topWorld)
+		local bottomScreen, bottomOn, bottomDepth = worldToScreen(bottomWorld)
+		local centerScreen, centerOn, centerDepth = worldToScreen(targetPart.Position)
+
+		if not topScreen or not bottomScreen or not centerScreen then
+			return nil
+		end
+		if not topOn or not bottomOn or not centerOn then
+			return nil
+		end
+		if topDepth <= 0 or bottomDepth <= 0 or centerDepth <= 0 then
+			return nil
+		end
+
+		local minY = math.min(topScreen.Y, bottomScreen.Y)
+		local maxY = math.max(topScreen.Y, bottomScreen.Y)
+		local height = maxY - minY
+		if height < 8 then
+			return nil
+		end
+
+		local width = math.clamp(height * 0.43, 8, 120)
+		local centerX = centerScreen.X
+		local minX = centerX - (width * 0.5)
+		local maxX = centerX + (width * 0.5)
 
 		return {
 			MinX = minX,
@@ -833,7 +839,12 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		end
 
 		local now = os.clock()
-		if (now - lastUpdateTime) < updateInterval then
+		local effectiveInterval = updateInterval
+		if isCustomMode then
+			effectiveInterval = math.max(updateInterval, 1 / 45)
+		end
+
+		if (now - lastUpdateTime) < effectiveInterval then
 			return
 		end
 		lastUpdateTime = now
@@ -863,7 +874,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 				if trackingPart then
 					local distance = myRoot and (myRoot.Position - trackingPart.Position).Magnitude or 0
 					if distance <= maxRenderDistance then
-						local bounds = getBoxBoundsFromPart(trackingPart)
+						local bounds = getBoxBoundsFromPart(enemyModel, trackingPart)
 						if bounds then
 							active[enemyModel] = true
 
@@ -922,7 +933,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 							local healthRatio = getCustomHealthRatio(enemyModel)
 							if showHealthBar and healthRatio then
 								local barWidth = 4
-								local barX = bounds.MaxX + 5
+								local barX = bounds.MinX - 7
 								local barY = bounds.MinY
 								local barHeight = bounds.Height
 								local fillHeight = math.max(1, math.floor(barHeight * healthRatio))
@@ -948,7 +959,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 								set.HealthOutline.Visible = false
 							end
 
-							updateCustomSkeleton(set, enemyModel, trackingPart, alpha, thickness, currentSkeletonColor)
+							updateCustomSkeleton(set, enemyModel, trackingPart, bounds, alpha, thickness, currentSkeletonColor)
 							updateCustomHeadCircle(set, enemyModel, trackingPart, bounds, alpha, thickness)
 						else
 							local set = espObjects[enemyModel]
