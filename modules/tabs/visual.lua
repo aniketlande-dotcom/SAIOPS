@@ -178,6 +178,188 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 		return models
 	end
 
+	local function getModelTagGui(model)
+		return model:FindFirstChild("NameTagGui", true)
+	end
+
+	local function getCustomDisplayName(model)
+		local tagGui = getModelTagGui(model)
+		if not tagGui then
+			return nil
+		end
+
+		local playerTag = tagGui:FindFirstChild("PlayerTag")
+		if not playerTag or not playerTag:IsA("TextLabel") then
+			return nil
+		end
+
+		local tagText = playerTag.Text
+		if type(tagText) ~= "string" or tagText == "" then
+			return nil
+		end
+
+		local mapped = Players:FindFirstChild(tagText)
+		if mapped then
+			return mapped.DisplayName or mapped.Name or tagText
+		end
+
+		return tagText
+	end
+
+	local function getCustomHealthRatio(model)
+		local mapped = getModelPlayerFromTag(model)
+		if mapped and mapped.Character then
+			local humanoid = mapped.Character:FindFirstChildOfClass("Humanoid")
+			if humanoid and humanoid.MaxHealth > 0 then
+				return math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+			end
+		end
+
+		local tagGui = getModelTagGui(model)
+		if tagGui then
+			local healthFrame = tagGui:FindFirstChild("Health")
+			local percent = healthFrame and healthFrame:FindFirstChild("Percent")
+			if percent and percent:IsA("Frame") then
+				local ratio = percent.Size.X.Scale
+				if type(ratio) == "number" then
+					return math.clamp(ratio, 0, 1)
+				end
+			end
+		end
+
+		return nil
+	end
+
+	local function getMeshParts(model, maxCount)
+		local parts = {}
+		for _, d in ipairs(model:GetDescendants()) do
+			if d:IsA("MeshPart") then
+				table.insert(parts, d)
+				if #parts >= (maxCount or 24) then
+					break
+				end
+			end
+		end
+		return parts
+	end
+
+	local function getCustomSkeletonPoints(model, trackingPart)
+		local parts = getMeshParts(model, 24)
+		if #parts == 0 then
+			return nil
+		end
+
+		local head, feet = parts[1], parts[1]
+		local left, right = parts[1], parts[1]
+		for _, p in ipairs(parts) do
+			if p.Position.Y > head.Position.Y then
+				head = p
+			end
+			if p.Position.Y < feet.Position.Y then
+				feet = p
+			end
+			if p.Position.X < left.Position.X then
+				left = p
+			end
+			if p.Position.X > right.Position.X then
+				right = p
+			end
+		end
+
+		return {
+			Head = head,
+			Center = trackingPart or head,
+			Left = left,
+			Right = right,
+			Feet = feet
+		}
+	end
+
+	local function updateCustomSkeleton(set, model, trackingPart, alpha, thickness, lineColor)
+		if not showSkeleton then
+			for i, line in ipairs(set.SkeletonLines) do
+				line.Visible = false
+				set.SkeletonState[i] = nil
+			end
+			return
+		end
+
+		local pts = getCustomSkeletonPoints(model, trackingPart)
+		if not pts then
+			for i, line in ipairs(set.SkeletonLines) do
+				line.Visible = false
+				set.SkeletonState[i] = nil
+			end
+			return
+		end
+
+		local pairsList = {
+			{ pts.Head, pts.Center },
+			{ pts.Center, pts.Left },
+			{ pts.Center, pts.Right },
+			{ pts.Center, pts.Feet }
+		}
+
+		for i, line in ipairs(set.SkeletonLines) do
+			local pair = pairsList[i]
+			if not pair then
+				line.Visible = false
+				set.SkeletonState[i] = nil
+			else
+				local fromPos, fromOn, fromDepth = worldToScreen(pair[1].Position)
+				local toPos, toOn, toDepth = worldToScreen(pair[2].Position)
+				if fromPos and toPos and fromOn and toOn and fromDepth > 0 and toDepth > 0 then
+					line.From = fromPos
+					line.To = toPos
+					line.Color = lineColor
+					line.Transparency = alpha
+					line.Thickness = math.max(1, thickness)
+					line.Visible = true
+				else
+					line.Visible = false
+					set.SkeletonState[i] = nil
+				end
+			end
+		end
+	end
+
+	local function updateCustomHeadCircle(set, model, trackingPart, bounds, alpha, thickness)
+		if not showHeadCircle then
+			set.HeadCircle.Visible = false
+			set.HeadCircleOutline.Visible = false
+			return
+		end
+
+		local pts = getCustomSkeletonPoints(model, trackingPart)
+		local head = pts and pts.Head or trackingPart
+		if not head then
+			set.HeadCircle.Visible = false
+			set.HeadCircleOutline.Visible = false
+			return
+		end
+
+		local center, onScreen, depth = worldToScreen(head.Position)
+		if not center or not onScreen or depth <= 0 then
+			set.HeadCircle.Visible = false
+			set.HeadCircleOutline.Visible = false
+			return
+		end
+
+		local radius = math.clamp(bounds.Width * 0.22, 4, 35)
+
+		set.HeadCircleOutline.Position = center
+		set.HeadCircleOutline.Radius = radius
+		set.HeadCircleOutline.Transparency = alpha
+		set.HeadCircleOutline.Visible = true
+
+		set.HeadCircle.Position = center
+		set.HeadCircle.Radius = radius
+		set.HeadCircle.Thickness = math.max(1, thickness)
+		set.HeadCircle.Transparency = math.clamp(alpha * 0.55, 0.2, 0.95)
+		set.HeadCircle.Color = headColor
+		set.HeadCircle.Visible = true
+	end
+
 	local function worldToScreen(position)
 		local camera = workspace.CurrentCamera
 		if not camera then
@@ -692,8 +874,10 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 							local alpha, thickness = getDistanceStyle(distance)
 							local targetVisible = getVisibilityCached(enemyModel, enemyModel, trackingPart, now)
 							local currentBoxColor = boxColor
+							local currentSkeletonColor = skeletonColor
 							if visibleColorOverrideEnabled and targetVisible then
 								currentBoxColor = visibleBoxColor
+								currentSkeletonColor = visibleSkeletonColor
 							end
 
 							if showBox then
@@ -705,7 +889,7 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 								set.Box.Position = Vector2.new(bounds.MinX, bounds.MinY)
 								set.Box.Size = Vector2.new(bounds.Width, bounds.Height)
 								set.Box.Color = currentBoxColor
-								set.Box.Thickness = math.max(1, thickness)
+								set.Box.Thickness = math.max(1.2, thickness)
 								set.Box.Transparency = alpha
 								set.Box.Visible = true
 							else
@@ -714,28 +898,56 @@ function VisualTabModule:Build(Window, Rayfield, Shared)
 							end
 
 							if showName then
-								if showDistanceInName then
-									set.Name.Text = string.format("%s [%.0fm]", enemyModel.Name, distance)
+								local displayName = getCustomDisplayName(enemyModel)
+								if not displayName then
+									set.Name.Visible = false
 								else
-									set.Name.Text = enemyModel.Name
+								if showDistanceInName then
+									set.Name.Text = string.format("%s [%.0fm]", displayName, distance)
+								else
+									set.Name.Text = displayName
 								end
 								set.Name.Position = Vector2.new(bounds.CenterX, bounds.MinY - 16)
 								set.Name.Size = nameTextSize
 								set.Name.Color = nameColor
 								set.Name.Transparency = alpha
 								set.Name.Visible = true
+								end
 							else
 								set.Name.Visible = false
 							end
 
-							set.HealthBackground.Visible = false
-							set.HealthFill.Visible = false
-							set.HealthOutline.Visible = false
-							set.HeadCircle.Visible = false
-							set.HeadCircleOutline.Visible = false
-							for _, line in ipairs(set.SkeletonLines) do
-								line.Visible = false
+							local healthRatio = getCustomHealthRatio(enemyModel)
+							if showHealthBar and healthRatio then
+								local barWidth = 4
+								local barX = bounds.MaxX + 5
+								local barY = bounds.MinY
+								local barHeight = bounds.Height
+								local fillHeight = math.max(1, math.floor(barHeight * healthRatio))
+
+								set.HealthBackground.Position = Vector2.new(barX, barY)
+								set.HealthBackground.Size = Vector2.new(barWidth, barHeight)
+								set.HealthBackground.Transparency = math.clamp(alpha * 0.6, 0.2, 1)
+								set.HealthBackground.Visible = true
+
+								set.HealthFill.Position = Vector2.new(barX, barY + (barHeight - fillHeight))
+								set.HealthFill.Size = Vector2.new(barWidth, fillHeight)
+								set.HealthFill.Color = getHealthColor(healthRatio)
+								set.HealthFill.Transparency = alpha
+								set.HealthFill.Visible = true
+
+								set.HealthOutline.Position = Vector2.new(barX - 1, barY - 1)
+								set.HealthOutline.Size = Vector2.new(barWidth + 2, barHeight + 2)
+								set.HealthOutline.Transparency = alpha
+								set.HealthOutline.Visible = true
+							else
+								set.HealthBackground.Visible = false
+								set.HealthFill.Visible = false
+								set.HealthOutline.Visible = false
 							end
+
+							updateCustomSkeleton(set, enemyModel, trackingPart, alpha, thickness, currentSkeletonColor)
+							updateCustomHeadCircle(set, enemyModel, trackingPart, bounds, alpha, thickness)
 						else
 							local set = espObjects[enemyModel]
 							if set then
