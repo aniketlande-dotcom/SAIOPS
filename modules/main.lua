@@ -28,7 +28,6 @@ local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 local Shared = LoadModule("modules/shared.lua")
 local WindowModule = LoadModule("modules/window.lua")
-local PlayerTabModule = LoadModule("modules/tabs/player.lua")
 local VisualTabModule = LoadModule("modules/tabs/visual.lua")
 local AimbotTabModule = LoadModule("modules/tabs/aimbot.lua")
 local UtilityTabModule = LoadModule("modules/tabs/utility.lua")
@@ -36,7 +35,6 @@ local SettingsTabModule = LoadModule("modules/tabs/settings.lua")
 
 local Window = WindowModule:Create(Rayfield)
 
-PlayerTabModule:Build(Window, Rayfield, Shared)
 VisualTabModule:Build(Window, Rayfield, Shared)
 AimbotTabModule:Build(Window, Rayfield, Shared)
 UtilityTabModule:Build(Window, Rayfield, Shared)

@@ -33,6 +33,22 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 		fovCircle.Color = fovColor
 	end
 
+	local silentAimEnabled = false
+	local silentAimFovRadius = 120
+	local showSilentAimFov = false
+	local silentAimFovColor = Color3.fromRGB(255, 0, 0)
+
+	local saFovCircle = nil
+	if Drawing and type(Drawing.new) == "function" then
+		saFovCircle = Drawing.new("Circle")
+		saFovCircle.Visible = false
+		saFovCircle.Filled = false
+		saFovCircle.Thickness = 1.5
+		saFovCircle.NumSides = 72
+		saFovCircle.Radius = silentAimFovRadius
+		saFovCircle.Color = silentAimFovColor
+	end
+
 	local function resolveKeyCode(value)
 		if typeof(value) == "EnumItem" then
 			return value
@@ -95,7 +111,8 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 		return result.Instance and result.Instance:IsDescendantOf(targetCharacter)
 	end
 
-	local function getBestTarget()
+	local function getBestTarget(customRadius)
+		local radius = customRadius or fovRadius
 		local mouseLocation = UserInputService:GetMouseLocation()
 		local nearestDistance = math.huge
 		local bestPart = nil
@@ -109,7 +126,7 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 						local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
 						if onScreen and isVisible(player.Character, targetPart) then
 							local distance = (Vector2.new(screenPos.X, screenPos.Y) - mouseLocation).Magnitude
-							if distance <= fovRadius and distance < nearestDistance then
+							if distance <= radius and distance < nearestDistance then
 								nearestDistance = distance
 								bestPart = targetPart
 							end
@@ -244,6 +261,83 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 		end
 	})
 
+	if game.PlaceId == 286090429 then
+		AimbotTab:CreateSection("Arsenal Silent Aim")
+
+		AimbotTab:CreateToggle({
+			Name = "Enable Silent Aim",
+			CurrentValue = false,
+			Flag = "silentaim_enabled",
+			Callback = function(value)
+				silentAimEnabled = value
+			end
+		})
+
+		AimbotTab:CreateSlider({
+			Name = "Silent FOV Radius",
+			Range = {25, 600},
+			Increment = 1,
+			Suffix = "px",
+			CurrentValue = 120,
+			Flag = "silentaim_fov_radius",
+			Callback = function(value)
+				silentAimFovRadius = value
+				if saFovCircle then
+					saFovCircle.Radius = silentAimFovRadius
+				end
+			end
+		})
+
+		AimbotTab:CreateToggle({
+			Name = "Show Silent FOV",
+			CurrentValue = false,
+			Flag = "silentaim_show_fov",
+			Callback = function(value)
+				showSilentAimFov = value
+				if saFovCircle then
+					saFovCircle.Visible = value
+				end
+			end
+		})
+
+		AimbotTab:CreateColorPicker({
+			Name = "Silent FOV Color",
+			Color = silentAimFovColor,
+			Flag = "silentaim_fov_color",
+			Callback = function(value)
+				silentAimFovColor = value
+				if saFovCircle then
+					saFovCircle.Color = value
+				end
+			end
+		})
+
+		local OldNameCall = nil
+		OldNameCall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+			local method = getnamecallmethod()
+			local args = {...}
+			
+			if not checkcaller() and silentAimEnabled and (method == "FindPartOnRayWithIgnoreList" or method == "Raycast") then
+				local targetPart = getBestTarget(silentAimFovRadius)
+				if targetPart then
+					if method == "FindPartOnRayWithIgnoreList" then
+						local origin = args[1].Origin
+						local direction = (targetPart.Position - origin).Unit * 1000
+						args[1] = Ray.new(origin, direction)
+						return OldNameCall(self, unpack(args))
+					elseif method == "Raycast" then
+						local origin = args[1]
+						local direction = (targetPart.Position - origin).Unit * 1000
+						args[2] = direction
+						return OldNameCall(self, unpack(args))
+					end
+				end
+			end
+			
+			return OldNameCall(self, ...)
+		end))
+	end
+
 	UserInputService.InputBegan:Connect(function(input, processed)
 		if processed then
 			return
@@ -276,6 +370,13 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 			fovCircle.Position = UserInputService:GetMouseLocation()
 			fovCircle.Radius = fovRadius
 			fovCircle.Color = fovColor
+		end
+
+		if saFovCircle then
+			saFovCircle.Visible = showSilentAimFov and silentAimEnabled
+			saFovCircle.Position = UserInputService:GetMouseLocation()
+			saFovCircle.Radius = silentAimFovRadius
+			saFovCircle.Color = silentAimFovColor
 		end
 
 		local shouldAim = aimbotEnabled and ((activationMode == "Toggle" and toggleActive) or (activationMode == "Hold" and holdActive))
