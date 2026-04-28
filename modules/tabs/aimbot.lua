@@ -261,101 +261,129 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 		end
 	})
 
-	if game.PlaceId == 286090429 or game.GameId == 111958650 then
-		AimbotTab:CreateSection("Arsenal Silent Aim")
+	AimbotTab:CreateSection("Silent Aim")
 
-		AimbotTab:CreateToggle({
-			Name = "Enable Silent Aim",
-			CurrentValue = false,
-			Flag = "silentaim_enabled",
-			Callback = function(value)
-				silentAimEnabled = value
+	AimbotTab:CreateToggle({
+		Name = "Enable Silent Aim",
+		CurrentValue = false,
+		Flag = "silentaim_enabled",
+		Callback = function(value)
+			silentAimEnabled = value
+		end
+	})
+
+	AimbotTab:CreateSlider({
+		Name = "Silent FOV Radius",
+		Range = {25, 600},
+		Increment = 1,
+		Suffix = "px",
+		CurrentValue = 120,
+		Flag = "silentaim_fov_radius",
+		Callback = function(value)
+			silentAimFovRadius = value
+			if saFovCircle then
+				saFovCircle.Radius = silentAimFovRadius
 			end
-		})
+		end
+	})
 
-		AimbotTab:CreateSlider({
-			Name = "Silent FOV Radius",
-			Range = {25, 600},
-			Increment = 1,
-			Suffix = "px",
-			CurrentValue = 120,
-			Flag = "silentaim_fov_radius",
-			Callback = function(value)
-				silentAimFovRadius = value
-				if saFovCircle then
-					saFovCircle.Radius = silentAimFovRadius
-				end
+	AimbotTab:CreateToggle({
+		Name = "Show Silent FOV",
+		CurrentValue = false,
+		Flag = "silentaim_show_fov",
+		Callback = function(value)
+			showSilentAimFov = value
+			if saFovCircle then
+				saFovCircle.Visible = value
 			end
-		})
+		end
+	})
 
-		AimbotTab:CreateToggle({
-			Name = "Show Silent FOV",
-			CurrentValue = false,
-			Flag = "silentaim_show_fov",
-			Callback = function(value)
-				showSilentAimFov = value
-				if saFovCircle then
-					saFovCircle.Visible = value
-				end
+	AimbotTab:CreateColorPicker({
+		Name = "Silent FOV Color",
+		Color = silentAimFovColor,
+		Flag = "silentaim_fov_color",
+		Callback = function(value)
+			silentAimFovColor = value
+			if saFovCircle then
+				saFovCircle.Color = value
 			end
-		})
+		end
+	})
 
-		AimbotTab:CreateColorPicker({
-			Name = "Silent FOV Color",
-			Color = silentAimFovColor,
-			Flag = "silentaim_fov_color",
-			Callback = function(value)
-				silentAimFovColor = value
-				if saFovCircle then
-					saFovCircle.Color = value
-				end
-			end
-		})
-
-		local isSilentAiming = false
-		local OldNameCall = nil
-		OldNameCall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-			local method = getnamecallmethod()
-			local args = {...}
-			
-			if not checkcaller() and silentAimEnabled and not isSilentAiming then
-				if method == "FindPartOnRayWithIgnoreList" or method == "Raycast" or method == "FindPartOnRay" or method == "FindPartOnRayWithWhitelist" then
-					isSilentAiming = true
-					local targetPart = getBestTarget(silentAimFovRadius)
-					isSilentAiming = false
-					
-					if targetPart then
-						if method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRay" or method == "FindPartOnRayWithWhitelist" then
-							local origin = args[1].Origin
-							local direction = (targetPart.Position - origin).Unit * 1000
-							return OldNameCall(self, Ray.new(origin, direction), args[2], args[3], args[4])
-						elseif method == "Raycast" then
-							local origin = args[1]
-							local direction = (targetPart.Position - origin).Unit * 1000
-							return OldNameCall(self, origin, direction, args[3])
-						end
+	local isSilentAiming = false
+	local OldNameCall = nil
+	OldNameCall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+		local method = getnamecallmethod()
+		local args = {...}
+		
+		if not checkcaller() and silentAimEnabled and not isSilentAiming then
+			if method == "FindPartOnRayWithIgnoreList" or method == "Raycast" or method == "FindPartOnRay" or method == "FindPartOnRayWithWhitelist" then
+				isSilentAiming = true
+				local targetPart = getBestTarget(silentAimFovRadius)
+				isSilentAiming = false
+				
+				if targetPart then
+					if method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRay" or method == "FindPartOnRayWithWhitelist" then
+						local origin = args[1].Origin
+						local direction = (targetPart.Position - origin).Unit * 1000
+						return OldNameCall(self, Ray.new(origin, direction), args[2], args[3], args[4])
+					elseif method == "Raycast" then
+						local origin = args[1]
+						local direction = (targetPart.Position - origin).Unit * 1000
+						return OldNameCall(self, origin, direction, args[3])
 					end
-				elseif method == "FireServer" and (tostring(self) == "HitPart" or tostring(self) == "ProjectileHit") then
-					isSilentAiming = true
-					local targetPart = getBestTarget(silentAimFovRadius)
-					isSilentAiming = false
-					
-					if targetPart then
-						for i, v in ipairs(args) do
-							if typeof(v) == "Instance" and v:IsA("BasePart") then
-								args[i] = targetPart
-							elseif typeof(v) == "Vector3" then
-								args[i] = targetPart.Position
+				end
+			elseif method == "FireServer" and tostring(self) ~= "ReportMetrics" then
+				-- Generic FireServer projectile redirection (highly dependent on game, but common pattern)
+				isSilentAiming = true
+				local targetPart = getBestTarget(silentAimFovRadius)
+				isSilentAiming = false
+				
+				if targetPart then
+					for i, v in ipairs(args) do
+						if typeof(v) == "Instance" and v:IsA("BasePart") then
+							args[i] = targetPart
+						elseif typeof(v) == "Vector3" then
+							args[i] = targetPart.Position
+						elseif type(v) == "table" then
+							for k, val in pairs(v) do
+								if typeof(val) == "Vector3" then
+									v[k] = targetPart.Position
+								elseif typeof(val) == "Instance" and val:IsA("BasePart") then
+									v[k] = targetPart
+								end
 							end
 						end
-						return OldNameCall(self, unpack(args))
+					end
+					return OldNameCall(self, unpack(args))
+				end
+			end
+		end
+		
+		return OldNameCall(self, ...)
+	end))
+
+	local OldIndex = nil
+	OldIndex = hookmetamethod(game, "__index", newcclosure(function(self, index)
+		if not checkcaller() and silentAimEnabled and not isSilentAiming and self == LocalPlayer:GetMouse() then
+			local method = tostring(index)
+			if method == "Hit" or method == "Target" then
+				isSilentAiming = true
+				local targetPart = getBestTarget(silentAimFovRadius)
+				isSilentAiming = false
+
+				if targetPart then
+					if method == "Hit" then
+						return targetPart.CFrame
+					elseif method == "Target" then
+						return targetPart
 					end
 				end
 			end
-			
-			return OldNameCall(self, ...)
-		end))
-	end
+		end
+		return OldIndex(self, index)
+	end))
 
 	UserInputService.InputBegan:Connect(function(input, processed)
 		if processed then
