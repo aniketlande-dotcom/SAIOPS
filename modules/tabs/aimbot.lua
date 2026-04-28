@@ -312,24 +312,28 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 			end
 		})
 
+		local isSilentAiming = false
 		local OldNameCall = nil
 		OldNameCall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
 			local method = getnamecallmethod()
 			local args = {...}
 			
-			if not checkcaller() and silentAimEnabled and (method == "FindPartOnRayWithIgnoreList" or method == "Raycast") then
-				local targetPart = getBestTarget(silentAimFovRadius)
-				if targetPart then
-					if method == "FindPartOnRayWithIgnoreList" then
-						local origin = args[1].Origin
-						local direction = (targetPart.Position - origin).Unit * 1000
-						args[1] = Ray.new(origin, direction)
-						return OldNameCall(self, unpack(args))
-					elseif method == "Raycast" then
-						local origin = args[1]
-						local direction = (targetPart.Position - origin).Unit * 1000
-						args[2] = direction
-						return OldNameCall(self, unpack(args))
+			if not checkcaller() and silentAimEnabled and not isSilentAiming then
+				if method == "FindPartOnRayWithIgnoreList" or method == "Raycast" or method == "FindPartOnRay" or method == "FindPartOnRayWithWhitelist" then
+					isSilentAiming = true
+					local targetPart = getBestTarget(silentAimFovRadius)
+					isSilentAiming = false
+					
+					if targetPart then
+						if method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRay" or method == "FindPartOnRayWithWhitelist" then
+							local origin = args[1].Origin
+							local direction = (targetPart.Position - origin).Unit * 1000
+							return OldNameCall(self, Ray.new(origin, direction), args[2], args[3], args[4])
+						elseif method == "Raycast" then
+							local origin = args[1]
+							local direction = (targetPart.Position - origin).Unit * 1000
+							return OldNameCall(self, origin, direction, args[3])
+						end
 					end
 				end
 			end
