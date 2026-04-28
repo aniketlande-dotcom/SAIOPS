@@ -335,6 +335,21 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 							return OldNameCall(self, origin, direction, args[3])
 						end
 					end
+				elseif method == "FireServer" and (tostring(self) == "HitPart" or tostring(self) == "ProjectileHit") then
+					isSilentAiming = true
+					local targetPart = getBestTarget(silentAimFovRadius)
+					isSilentAiming = false
+					
+					if targetPart then
+						for i, v in ipairs(args) do
+							if typeof(v) == "Instance" and v:IsA("BasePart") then
+								args[i] = targetPart
+							elseif typeof(v) == "Vector3" then
+								args[i] = targetPart.Position
+							end
+						end
+						return OldNameCall(self, unpack(args))
+					end
 				end
 			end
 			
