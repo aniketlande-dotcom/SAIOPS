@@ -3,7 +3,7 @@ local REPO_NAME = "SAIOPS"
 local REPO_REF = tostring(getgenv().SAIOPS_REPO_REF or "main")
 
 local function GetPublicFile(path)
-	return game:HttpGet("https://raw.githubusercontent.com/" .. REPO_OWNER .. "/" .. REPO_NAME .. "/" .. REPO_REF .. "/" .. path, true)
+	return game:HttpGet("https://raw.githubusercontent.com/" .. REPO_OWNER .. "/" .. REPO_NAME .. "/" .. REPO_REF .. "/" .. path .. "?t=" .. tostring(os.time()), true)
 end
 
 local function LoadModule(path)

@@ -261,7 +261,7 @@ function AimbotTabModule:Build(Window, Rayfield, Shared)
 		end
 	})
 
-	if game.PlaceId == 286090429 then
+	if game.PlaceId == 286090429 or game.GameId == 111958650 then
 		AimbotTab:CreateSection("Arsenal Silent Aim")
 
 		AimbotTab:CreateToggle({

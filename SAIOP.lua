@@ -6,7 +6,7 @@ if type(loadstring) ~= "function" then
 	error("SAIOPS: loadstring is not available in this executor.")
 end
 
-local source = game:HttpGet(MAIN_LOADER_URL, true)
+local source = game:HttpGet(MAIN_LOADER_URL .. "?t=" .. tostring(os.time()), true)
 if type(source) ~= "string" or source == "" then
 	error("SAIOPS: unable to fetch modules/main.lua from branch main.")
 end
